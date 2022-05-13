@@ -4,7 +4,7 @@
 OSM_DOWNLOAD_FILE=berlin-latest.osm.pbf
 OSM_DOWNLOAD_URL=http://download.geofabrik.de/europe/germany/${OSM_DOWNLOAD_FILE}
 
-OSM2PGSQL_BIN=/usr/bin/osm2pgsql
+OSM2PGSQL_BIN=/usr/local/bin/osm2pgsql
 
 OSM_LOCAL_FILE=openstreetmap-latest.osm.pbf
 OSM_FILTERED_FILE=openstreetmap-filtered.osm.pbf
@@ -14,7 +14,6 @@ OSM_POSTPROCESS_SCRIPT=db_scripts.sql
 
 ## using database credentials from ~/.pg_service.conf
 export PGSERVICE=osmdb
-
 
 #
 if [ ! -f "${OSM_LOCAL_FILE}" ]; then
@@ -36,9 +35,9 @@ if [ -f "${OSM_FILTERED_FILE}" ]; then
   ${OSM2PGSQL_BIN} -c -O flex -S ${OSM_LUA_SCRIPT} ${OSM_FILTERED_FILE}
 fi
 
-if [ -f "${OSM_POSTPROCESS_SCRIPT}" ]; then
-  echo "postprocess osm db data"
-  psql -q -f "${OSM_POSTPROCESS_SCRIPT}"
-else
-  echo "import script not found"
-fi
+# if [ -f "${OSM_POSTPROCESS_SCRIPT}" ]; then
+#   echo "postprocess osm db data"
+#   psql -q -f "${OSM_POSTPROCESS_SCRIPT}"
+# else
+#   echo "import script not found"
+# fi

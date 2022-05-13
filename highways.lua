@@ -62,6 +62,16 @@ tables.service = osm2pgsql.define_way_table('service', {
     { column = 'error_output', type = 'jsonb' },
 })
 
+tables.footways = osm2pgsql.define_way_table('footways', {
+    { column = 'id', sql_type = 'serial', create_only = true },
+    { column = 'footway', type = 'text' },
+    { column = 'geom', type = 'linestring', projection = srid },
+    { column = 'surface', type = 'text' },
+    { column = 'is_sidepath:of', type = 'text' },
+    { column = 'is_sidepath:of:name', type = 'text' },
+    { column = 'error_output', type = 'jsonb' },
+})
+
 tables.pt_platform = osm2pgsql.define_way_table('pt_platform', {
     { column = 'id', sql_type = 'serial', create_only = true },
     { column = 'geom', type = 'linestring', projection = srid },
@@ -227,7 +237,7 @@ for _, k in ipairs(position_keys) do
 end
 
 local crossing_exclude_values = {
-  'unmarked',
+  --'unmarked',
   'uncontrolled',
 }
 
@@ -538,7 +548,6 @@ function osm2pgsql.process_way(object)
             parking_condition_other_time_set = nil
         end
 
-
         if parking_condition_both_time_interval ~= nil then
             if parking_condition_other_time_set then
                 pl_error_idx = "pc04" .. side:sub(1)
@@ -779,7 +788,8 @@ function osm2pgsql.process_node(object)
 
 --    print("nodes",object.tags["crossing"], rev_crossing_exclude_values[crossing_check], object.tags.highway)
     if object.tags.highway == "traffic_signals" or object.tags.highway == "crossing" then
-      if rev_crossing_exclude_values[crossing_check] == nil or object.tags["crossing:buffer_marking"] ~= nil or object.tags["crossing:kerb_extension"] ~= nil then
+      if rev_crossing_exclude_values[crossing_check] == nil --or object.tags["crossing:buffer_marking"] ~= nil or object.tags["crossing:kerb_extension"] ~= nil
+        then
         --print("add row")
         tables.crossings:add_row({
           highway = object.tags["highway"],

@@ -2,6 +2,7 @@
 
 #http://download.geofabrik.de/europe/germany-latest.osm.pbf
 OSM_DOWNLOAD_FILE=berlin-latest.osm.pbf
+#OSM_DOWNLOAD_FILE=germany-latest.osm.pbf
 OSM_DOWNLOAD_URL=http://download.geofabrik.de/europe/germany/${OSM_DOWNLOAD_FILE}
 
 OSM2PGSQL_BIN=/usr/local/bin/osm2pgsql

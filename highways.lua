@@ -91,6 +91,23 @@ tables.crossings = osm2pgsql.define_node_table('crossings', {
     { column = 'geom', type = 'point' , projection = srid},
 })
 
+tables.ramps = osm2pgsql.define_node_table('ramps', {
+    { column = 'id', sql_type = 'serial', create_only = true },
+    { column = 'operator', type = 'text' },
+    { column = 'kerb', type = 'text' },
+    { column = 'geom', type = 'point' , projection = srid},
+})
+
+-- tables.hydrant = osm2pgsql.define_node_table('hydrant', {
+--     { column = 'id', sql_type = 'serial', create_only = true },
+--     { column = 'emergency', type = 'text' },
+--     { column = 'ref', type = 'text' },
+--     { column = 'fire_hydrant_type', type = 'text' },
+--     { column = 'fire_hydrant_position', type = 'text' },
+--     { column = 'fire_hydrant_diameter', type = 'text' },
+--     { column = 'geom', type = 'point' , projection = srid},
+-- })
+
 tables.boundaries = osm2pgsql.define_area_table('boundaries', {
     { column = 'id', sql_type = 'serial', create_only = true },
     { column = 'name', type = 'text' },
@@ -801,6 +818,21 @@ function osm2pgsql.process_node(object)
           traffic_signals_direction = object.tags["traffic_signals:direction"],
         })
       end
+    end
+    -- if object.tags.emergency == "fire_hydrant" then
+    --     tables.hydrant:add_row{
+    --       emergency = object.tags["emergency"],
+    --       fire_hydrant_type = object.tags["fire_hydrant:type"],
+    --       fire_hydrant_position = object.tags["fire_hydrant:position"],
+    --       fire_hydrant_diameter = object.tags["fire_hydrant:diameter"],
+    --       ref = object.tags["ref"],
+    --     }
+    -- end
+    if object.tags.ramp == "yes" then
+        tables.ramps:add_row{
+          operator = object.tags["operator"],
+          kerb = object.tags["kerb"],
+        }
     end
 end
 

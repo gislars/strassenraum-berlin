@@ -2,4 +2,6 @@ w/highway=primary,primary_link,secondary,secondary_link,tertiary,tertiary_link,r
 w/highway=construction
 w/public_transport=platform
 n/highway=traffic_signals,crossing,stop,give_way
+n/emergency=fire_hydrant
+n/ramp=yes
 r/boundary=administrative

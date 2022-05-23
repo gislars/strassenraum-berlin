@@ -45,9 +45,9 @@ ALTER TABLE ramps ADD COLUMN IF NOT EXISTS geog geography(Point, 4326);
 UPDATE ramps SET geog = geom::geography;
 ALTER TABLE ramps ALTER COLUMN geom TYPE geometry(Point, 25833) USING ST_Transform(geom, 25833);
 DROP INDEX IF EXISTS ramps_geom_idx;
-CREATE INDEX crossings_geom_idx ON public.ramps USING gist (geom);
+CREATE INDEX ramps_geom_idx ON public.ramps USING gist (geom);
 DROP INDEX IF EXISTS ramps_geog_idx;
-CREATE INDEX crossings_geog_idx ON public.ramps USING gist (geog);
+CREATE INDEX ramps_geog_idx ON public.ramps USING gist (geog);
 
 
 

@@ -74,10 +74,10 @@ SELECT
    ST_Buffer(ST_Intersection(h1.geog, h2.geog), 5) geog_buffer,
    ST_Buffer(ST_Intersection(h1.geog, h2.geog), 10) geog_buffer10
 FROM
-  highway_segments h1
-  JOIN highway_segments h2 ON ST_Intersects(h1.geog, h2.geog)
+  highway_union h1
+  JOIN highway_union h2 ON ST_Intersects(h1.geog, h2.geog)
   and h1.id != h2.id
-  and h1.line_name IS DISTINCT FROM h2.line_name
+  and h1.name IS DISTINCT FROM h2.name
 GROUP BY
    ST_Intersection(h1.geog, h2.geog)
 ;

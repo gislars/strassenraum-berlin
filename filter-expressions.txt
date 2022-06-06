@@ -1,5 +1,7 @@
 w/highway=primary,primary_link,secondary,secondary_link,tertiary,tertiary_link,residential,unclassified,living_street,pedestrian,road,service,track,bus_guideway
 w/highway=construction
+w/amenity=parking
+w/building=garages
 w/public_transport=platform
 n/highway=traffic_signals,crossing,stop,give_way
 n/emergency=fire_hydrant

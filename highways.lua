@@ -76,6 +76,23 @@ tables.pt_platform = osm2pgsql.define_way_table('pt_platform', {
     { column = 'id', sql_type = 'serial', create_only = true },
     { column = 'geom', type = 'linestring', projection = srid },
     { column = 'name', type = 'text' },
+    { column = 'bus', type = 'text' },
+    { column = 'tram', type = 'text' },
+    { column = 'railway', type = 'text' },
+    { column = 'highway', type = 'text' },
+    { column = 'error_output', type = 'jsonb' },
+})
+
+tables.parking_poly = osm2pgsql.define_area_table('parking_poly', {
+    { column = 'id', sql_type = 'serial', create_only = true },
+    { column = 'geom', type = 'geometry', projection = srid },
+    { column = 'access', type = 'text' },
+    { column = 'capacity', sql_type = 'numeric' },
+    { column = 'parking', type = 'text' },
+    { column = 'building', type = 'text' },
+    { column = 'parking_orientation', type = 'text' },
+    { column = 'parking_street_side_of', type = 'text' },
+    { column = 'parking_street_side_of_name', type = 'text' },
     { column = 'error_output', type = 'jsonb' },
 })
 
@@ -165,6 +182,15 @@ local service_list = {'service', 'track', 'bus_guideway', 'footway', 'cycleway',
 local service_types = {}
 for _, k in ipairs(service_list) do
     service_types[k] = 1
+end
+
+-- list of public transport tags
+local pt_list = {'platform'}
+
+-- Prepare table 'service_types' for quick checking of service types
+local pt_types = {}
+for _, k in ipairs(pt_list) do
+    pt_types[k] = 1
 end
 
 
@@ -315,7 +341,7 @@ function remove_whitespace(s)
   return s:gsub("%s+", "")
 end
 
-function parse_width_units(input)
+function parse_units(input)
     -- from osm2pgsql/flex-config/data-types.lua
     if not input then
         return nil
@@ -376,7 +402,40 @@ end
 
 function osm2pgsql.process_way(object)
 
-    -- ignore all objects with area=yes
+    if object.tags["level"] ~= nil or object.tags["layer"] ~= nil then
+        return
+    end
+
+    -- process public transport objects and push them to db table
+    local public_transport = object:grab_tag("public_transport")
+    if public_transport == "platform" then
+        tables.pt_platform:add_row({
+          name = object.tags["name"],
+          bus = object.tags["bus"],
+          tram = object.tags["tram"],
+          railway = object.tags["railway"],
+          highway = object.tags["highway"],
+        })
+        return
+    end
+
+    -- process parking objects and push them to db table
+    local parking_amenity = object:grab_tag("amenity")
+    if object.is_closed and parking_amenity == "parking" then
+        tables.parking_poly:add_row({
+          access = object.tags["access"],
+          capacity = parse_units(object.tags["capacity"]),
+          building = object.tags["building"],
+          parking = object.tags["parking"],
+          parking_orientation = object.tags["parking:orientation"],
+          parking_street_side_of = object.tags["parking:street_side:of"],
+          parking_street_side_of_name = object.tags["parking:street_side:of:name"],
+          geom = { create = 'area'}
+        })
+        return
+    end
+
+    -- ignore all objects with area=yes from now
     if has_area_tags(object.tags) then
         return
     end
@@ -687,7 +746,7 @@ function osm2pgsql.process_way(object)
     if width == nil then width = object.tags["width"] end
     if width == nil then width = object.tags["est_width"] end
     -- Einheiten korrigieren
-    if width ~= nil and parse_width_units(width) ~= nil then width = parse_width_units(width)
+    if width ~= nil and parse_units(width) ~= nil then width = parse_units(width)
     -- Ansonsten Breite aus anderen Straßenattributen abschätzen
     else
         highway = object.tags["highway"]
@@ -711,7 +770,7 @@ function osm2pgsql.process_way(object)
                 end
             end
         end
-        if parse_width_units(width) == nil then width = width_minor_street end
+        if parse_units(width) == nil then width = width_minor_street end
     end
     width_proc = width
 
@@ -797,6 +856,7 @@ function osm2pgsql.process_way(object)
         }
       end
     end
+
 end
 
 function osm2pgsql.process_node(object)

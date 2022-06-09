@@ -423,7 +423,7 @@ SELECT
   END "offset",
   CASE
     -- before offsetting we cut out all separated parking lanes
-    WHEN v.side IN ('left') THEN 
+    WHEN v.side IN ('left') THEN
       ST_Transform(
         ST_OffsetCurve(
           ST_Transform(
@@ -432,11 +432,11 @@ SELECT
               ST_SetSRID(COALESCE(ST_Buffer(s.geog, 0.2), 'GEOMETRYCOLLECTION EMPTY'::geography), 4326)::geometry
             ),
             25833
-          ), 
+          ),
           COALESCE(s.min_distance, a.parking_lane_left_offset)
         ), 4326
       )::geography
-    WHEN v.side IN ('right') THEN 
+    WHEN v.side IN ('right') THEN
       ST_Transform(
         ST_OffsetCurve(
           ST_Transform(
@@ -445,7 +445,7 @@ SELECT
               ST_SetSRID(COALESCE(ST_Buffer(s.geog, 0.2), 'GEOMETRYCOLLECTION EMPTY'::geography), 4326)::geometry
             ),
             25833
-          ), 
+          ),
           COALESCE(s.min_distance, a.parking_lane_right_offset)
         ), 4326
       )::geography
@@ -543,6 +543,8 @@ WHERE
   c.highway = 'traffic_signals' OR
   c.crossing != 'unmarked'
 ;
+DROP INDEX IF EXISTS ped_crossings_geog_offset_buffer_idx;
+CREATE INDEX ped_crossings_geog_offset_buffer_idx ON ped_crossings USING gist (geog_offset_buffer);
 
 DROP TABLE IF EXISTS crossing_buffer;
 CREATE TABLE crossing_buffer AS
@@ -568,7 +570,8 @@ SELECT
 FROM
   ped_crossings
 ;
-
+DROP INDEX IF EXISTS crossing_buffer_geog_idx;
+CREATE INDEX crossing_buffer_geog_idx ON crossing_buffer USING gist (geog);
 
 
 DROP TABLE IF EXISTS ssr;
@@ -599,6 +602,8 @@ WHERE
  s.parking_lane_left IS NOT NULL
  OR s.parking_lane_right IS NOT NULL
 ;
+DROP INDEX IF EXISTS ssr_geog_idx;
+CREATE INDEX ssr_geog_idx ON ssr USING gist (geog);
 
 DROP TABLE IF EXISTS driveways;
 CREATE TABLE driveways AS
@@ -625,6 +630,8 @@ SELECT
 FROM service s
   JOIN parking_lanes p ON ST_Intersects(s.geog, p.geog)
 ;
+DROP INDEX IF EXISTS driveways_geog_idx;
+CREATE INDEX driveways_geog_idx ON driveways USING gist (geog);
 
 DROP TABLE IF EXISTS kerb_intersection_points;
 CREATE TABLE kerb_intersection_points AS
@@ -658,44 +665,84 @@ WHERE
   ST_Intersects(a.geog, b.geog)
   AND a.id != b.id
 ;
+DROP INDEX IF EXISTS kerb_intersection_points_geog_idx;
+CREATE INDEX kerb_intersection_points_geog_idx ON kerb_intersection_points USING gist (geog);
+DROP INDEX IF EXISTS kerb_intersection_points_geog_buff_idx;
+CREATE INDEX kerb_intersection_points_geog_buff_idx ON kerb_intersection_points USING gist (geog_buff);
+
+
+DROP TABLE IF EXISTS buffer_driveways;
+CREATE TABLE buffer_driveways AS
+SELECT
+  p.id,
+  (ST_Union(d.geog::geometry))::geography geog
+FROM
+  parking_lanes p JOIN driveways d ON st_intersects(d.geog, p.geog)
+GROUP BY
+  p.id
+;
+DROP INDEX IF EXISTS buffer_driveways_geog_idx;
+CREATE INDEX buffer_driveways_geog_idx ON buffer_driveways USING gist (geog);
+
+DROP TABLE IF EXISTS buffer_pedestrian_crossings;
+CREATE TABLE buffer_pedestrian_crossings AS
+SELECT
+  p.id,
+  (ST_Union(c.geog_offset_buffer::geometry))::geography geog
+FROM
+  ped_crossings c JOIN parking_lanes p ON st_intersects(p.geog, c.geog_offset_buffer)
+GROUP BY
+  p.id
+;
+DROP INDEX IF EXISTS buffer_pedestrian_crossings_geog_idx;
+CREATE INDEX buffer_pedestrian_crossings_geog_idx ON buffer_pedestrian_crossings USING gist (geog);
+
+DROP TABLE IF EXISTS buffer_kerb_intersections;
+CREATE TABLE buffer_kerb_intersections AS
+SELECT
+  p.id,
+  (ST_Union(k.geog_buff::geometry))::geography geog
+FROM
+  kerb_intersection_points k JOIN parking_lanes p ON st_intersects(p.geog, k.geog_buff)
+WHERE
+  crossing_debug NOT IN ('same_street')
+GROUP BY
+ p.id
+;
+DROP INDEX IF EXISTS buffer_kerb_intersections_geog_idx;
+CREATE INDEX buffer_kerb_intersections_geog_idx ON buffer_kerb_intersections USING gist (geog);
+
+
+DROP TABLE IF EXISTS buffer_highways;
+CREATE TABLE buffer_highways AS
+SELECT
+  p.id,
+  (ST_Union(ST_Buffer(h.geog, 1)::geometry))::geography geog
+FROM
+  highways h JOIN parking_lanes p ON st_intersects(p.geog, st_buffer(h.geog, 1))
+GROUP BY
+  p.id
+;
+DROP INDEX IF EXISTS buffer_highways_geog_idx;
+CREATE INDEX buffer_highways_geog_idx ON buffer_highways USING gist (geog);
+
+DROP TABLE IF EXISTS buffer_ramps;
+CREATE TABLE buffer_ramps AS
+SELECT
+  p.id,
+  (ST_Union(ST_Buffer(r.geog, 1.4)::geometry))::geography geog
+FROM
+  parking_lanes p JOIN ramps r ON st_intersects(ST_Buffer(r.geog, 1.4), p.geog)
+GROUP BY
+  p.id
+;
+DROP INDEX IF EXISTS buffer_ramps_geog_idx;
+CREATE INDEX buffer_ramps_geog_idx ON buffer_ramps USING gist (geog);
+
+
 
 DROP TABLE IF EXISTS pl_dev;
 CREATE TABLE pl_dev AS
-WITH driveways AS (
-  SELECT
-    p.id,
-    (ST_Union(d.geog::geometry))::geography geog
-  FROM
-    parking_lanes p JOIN driveways d ON st_intersects(d.geog, p.geog)
-  GROUP BY
-    p.id
-), pedestrian_crossings AS (
-  SELECT
-    p.id,
-    (ST_Union(c.geog_offset_buffer::geometry))::geography geog
-  FROM
-    ped_crossings c JOIN parking_lanes p ON st_intersects(p.geog, c.geog_offset_buffer)
-  GROUP BY
-    p.id
-), kerb_intersections AS (
-  SELECT
-    p.id,
-    (ST_Union(k.geog_buff::geometry))::geography geog
-  FROM
-    kerb_intersection_points k JOIN parking_lanes p ON st_intersects(p.geog, k.geog_buff)
-  WHERE
-    crossing_debug NOT IN ('same_street')
-  GROUP BY
-   p.id
-), highways_buffer AS (
-  SELECT
-    p.id,
-    (ST_Union(ST_Buffer(h.geog, 3)::geometry))::geography geog
-  FROM
-    highways h JOIN parking_lanes p ON st_intersects(p.geog, st_buffer(h.geog, 2))
-  GROUP BY
-    p.id
-)
 SELECT
   DISTINCT p.id id,
   p.way_id way_id,
@@ -724,7 +771,10 @@ SELECT
     st_difference(
       st_difference(
         st_difference(
-          p.geog::geometry,
+          st_difference(
+            p.geog::geometry,
+            ST_SetSRID(COALESCE(r.geog, 'GEOMETRYCOLLECTION EMPTY'::geography), 4326)::geometry
+          ),
           ST_SetSRID(COALESCE(d.geog, 'GEOMETRYCOLLECTION EMPTY'::geography), 4326)::geometry
         ),
         ST_SetSRID(COALESCE(c.geog, 'GEOMETRYCOLLECTION EMPTY'::geography), 4326)::geometry
@@ -736,13 +786,15 @@ SELECT
   d.geog driveway_geog,
   c.geog ped_crossing_geog,
   k.geog kerbs_geog,
-  hb.geog highways_buffer_geog
+  hb.geog highways_buffer_geog,
+  r.geog ramps_geog
 FROM
   parking_lanes p
-  LEFT JOIN driveways d ON p.id = d.id
-  LEFT JOIN pedestrian_crossings c ON p.id = c.id
-  LEFT JOIN kerb_intersections k ON p.id = k.id
-  LEFT JOIN highways_buffer hb ON p.id = hb.id
+  LEFT JOIN buffer_driveways d ON p.id = d.id
+  LEFT JOIN buffer_ramps r ON p.id = r.id
+  LEFT JOIN buffer_pedestrian_crossings c ON p.id = c.id
+  LEFT JOIN buffer_kerb_intersections k ON p.id = k.id
+  LEFT JOIN buffer_highways hb ON p.id = hb.id
 ;
 
 DROP TABLE IF EXISTS pl_dev_geog;
@@ -814,13 +866,9 @@ FROM
 ;
 
 
-
-
-
 DROP TABLE IF EXISTS parking_segments;
 CREATE TABLE parking_segments AS
 SELECT
-
     way_id way_id,
     id id,
     side side,
@@ -850,3 +898,27 @@ WHERE ST_Length(geog) > 4
 DROP INDEX IF EXISTS parking_segments_geom_idx;
 CREATE INDEX parking_segments_geom_idx ON parking_segments USING gist (geom);
 
+DROP TABLE IF EXISTS boundaries_stats;
+CREATE TABLE boundaries_stats AS
+SELECT
+  b.name,
+  b.admin_level,
+  b.area,
+  p.orientation,
+  SUM(p.capacity) capacity,
+  SUM(ST_Length(ST_Transform(p.geom, 25833))) laenge_km,
+  b.geom geom
+FROM
+  boundaries b
+  LEFT JOIN parking_segments p ON ST_Intersects(p.geom, b.geom)
+WHERE
+  admin_level > 9
+GROUP BY
+  b.name,
+  b.admin_level,
+  b.area,
+  b.geom,
+  p.orientation
+;
+DROP INDEX IF EXISTS boundaries_stats_geom_idx;
+CREATE INDEX boundaries_stats_geom_idx ON boundaries_stats USING gist (geom);

@@ -380,9 +380,6 @@ CREATE INDEX pl_separated_union_geog_idx ON pl_separated_union USING gist (geog)
 
 
 
-DROP SEQUENCE IF EXISTS parking_lanes_id;
-CREATE SEQUENCE parking_lanes_id;
-
 DROP TABLE IF EXISTS parking_lanes;
 CREATE TABLE parking_lanes AS
 SELECT
@@ -485,8 +482,14 @@ SELECT
   NULL maxstay,
   p.capacity capacity_osm,
   'OSM' "source:capacity_osm",
-  p.capacity capacity,
-  'OSM' "source:capacity",
+  CASE
+    WHEN p.capacity IS NULL THEN round(ST_Area(p.geog) / 12.2)
+    ELSE p.capacity
+  END capacity,
+  CASE
+    WHEN p.capacity IS NULL THEN 'estimated'
+    ELSE 'OSM'
+  END "source:capacity",  
   NULL width,
   pl.min_distance "offset",
   ST_Transform(ST_OffsetCurve(ST_Transform(ST_LineMerge(pl.geog::geometry), 25833), pl.min_distance), 4326)::geography geog,
@@ -848,22 +851,25 @@ SELECT
     single.capacity_osm capacity_osm,
     single."source:capacity_osm" "source:capacity_osm",
     CASE
-      --WHEN side = 'left' AND a.parking_lane_left_capacity IS NOT NULL THEN a.parking_lane_left_capacity
-      WHEN side = 'left' THEN
+      WHEN side = 'left' AND single.capacity IS NOT NULL AND single.capacity != 0 THEN single.capacity
+      WHEN side = 'left' AND single.capacity IS NULL OR single.capacity = 0 THEN
         CASE
           WHEN single.orientation = 'parallel' AND ST_Length(single.simple_geog) > dv.vehicle_length THEN floor((ST_Length(single.simple_geog) + (dv.vehicle_dist_para - dv.vehicle_length)) / dv.vehicle_dist_para)
           WHEN single.orientation = 'diagonal' AND ST_Length(single.simple_geog) > dv.vehicle_diag_width THEN floor((ST_Length(single.simple_geog) + (dv.vehicle_dist_diag - dv.vehicle_diag_width)) / dv.vehicle_dist_diag)
           WHEN single.orientation = 'perpendicular' AND ST_Length(single.simple_geog) > dv.vehicle_width THEN floor((ST_Length(single.simple_geog) + (dv.vehicle_dist_perp - dv.vehicle_width)) / dv.vehicle_dist_perp)
         END
-      --WHEN side = 'right' AND a.parking_lane_right_capacity IS NOT NULL THEN a.parking_lane_right_capacity
-      WHEN side = 'right' THEN
+      WHEN side = 'right' AND single.capacity IS NOT NULL AND single.capacity != 0 THEN single.capacity
+      WHEN side = 'right' AND single.capacity IS NULL OR single.capacity = 0 THEN
         CASE
           WHEN single.orientation = 'parallel' AND ST_Length(single.simple_geog) > dv.vehicle_length THEN floor((ST_Length(single.simple_geog) + (dv.vehicle_dist_para - dv.vehicle_length)) / dv.vehicle_dist_para)
           WHEN single.orientation = 'diagonal' AND ST_Length(single.simple_geog) > dv.vehicle_diag_width THEN floor((ST_Length(single.simple_geog) + (dv.vehicle_dist_diag - dv.vehicle_diag_width)) / dv.vehicle_dist_diag)
           WHEN single.orientation = 'perpendicular' AND ST_Length(single.simple_geog) > dv.vehicle_width THEN floor((ST_Length(single.simple_geog) + (dv.vehicle_dist_perp - dv.vehicle_width)) / dv.vehicle_dist_perp)
         END
     END capacity,
-    'estimated' "source:capacity",
+    CASE
+      WHEN single."source:capacity" IS NOT NULL AND single.capacity != 0 THEN single."source:capacity"
+      WHEN single."source:capacity" IS NULL OR single.capacity = 0 THEN 'estimated'
+    END "source:capacity",
     single.width width,
     single."offset" "offset",
     single.geog single_geog,

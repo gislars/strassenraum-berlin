@@ -66,9 +66,14 @@ CREATE INDEX ramps_geom_idx ON public.ramps USING gist (geom);
 DROP INDEX IF EXISTS ramps_geog_idx;
 CREATE INDEX ramps_geog_idx ON public.ramps USING gist (geog);
 
+ALTER TABLE pt_platform ADD COLUMN IF NOT EXISTS geog geography(LineString, 4326);
+UPDATE pt_platform SET geog = geom::geography;
+ALTER TABLE pt_platform ALTER COLUMN geom TYPE geometry(LineString, 25833) USING ST_Transform(geom, 25833);
+DROP INDEX IF EXISTS pt_platform_geom_idx;
+CREATE INDEX pt_platform_geom_idx ON public.pt_platform USING gist (geom);
+DROP INDEX IF EXISTS pt_platform_geog_idx;
+CREATE INDEX pt_platform_geog_idx ON public.pt_platform USING gist (geog);
 
-DROP SEQUENCE IF EXISTS highway_union_id;
-CREATE SEQUENCE highway_union_id;
 
 DROP TABLE IF EXISTS highway_union;
 CREATE TABLE highway_union AS
@@ -76,6 +81,7 @@ WITH hw_union AS (
   SELECT
     row_number() over() id,
     name,
+    array_agg(DISTINCT way_id) way_ids,
     (ST_LineMerge(ST_UNION(geog::geometry))) AS geom
   FROM highways
   GROUP BY name
@@ -83,6 +89,7 @@ WITH hw_union AS (
 SELECT
   nextval('highway_union_id') id,
   h.name highway_name,
+  h.way_ids,
   (ST_Dump(h.geom)).path part,
   (ST_Dump(h.geom)).geom geom,
   ((ST_Dump(h.geom)).geom)::geography geog
@@ -264,12 +271,12 @@ SELECT
   ST_Transform(
     ST_MakeLine(
       ST_ClosestPoint(
-        ST_Transform(h.geog::geometry, 3857),
-        ST_Transform(p.geom, 3857)
+        ST_Transform(h.geog::geometry, 25833),
+        ST_Transform(p.geom, 25833)
       ) ORDER BY
         ST_LineLocatePoint(
-          ST_Transform(h.geog::geometry, 3857),
-          ST_ClosestPoint(ST_Transform(h.geog::geometry, 3857), ST_Transform(p.geom, 3857))
+          ST_Transform(h.geog::geometry, 25833),
+          ST_ClosestPoint(ST_Transform(h.geog::geometry, 25833), ST_Transform(p.geom, 25833))
         )
     ),
     4326
@@ -310,12 +317,12 @@ SELECT
   ST_Transform(
     ST_MakeLine(
       ST_ClosestPoint(
-        ST_Transform(h.geog::geometry, 3857),
-        ST_Transform(p.geom, 3857)
+        ST_Transform(h.geog::geometry, 25833),
+        ST_Transform(p.geom, 25833)
       ) ORDER BY
         ST_LineLocatePoint(
-          ST_Transform(h.geog::geometry, 3857),
-          ST_ClosestPoint(ST_Transform(h.geog::geometry, 3857), ST_Transform(p.geom, 3857))
+          ST_Transform(h.geog::geometry, 25833),
+          ST_ClosestPoint(ST_Transform(h.geog::geometry, 25833), ST_Transform(p.geom, 25833))
         )
     ),
     4326
@@ -373,10 +380,13 @@ CREATE INDEX pl_separated_union_geog_idx ON pl_separated_union USING gist (geog)
 
 
 
+DROP SEQUENCE IF EXISTS parking_lanes_id;
+CREATE SEQUENCE parking_lanes_id;
+
 DROP TABLE IF EXISTS parking_lanes;
 CREATE TABLE parking_lanes AS
 SELECT
-  row_number() over() id,
+  nextval('parking_lanes_id') id,
   a.way_id,
   v.side,
   a.type highway,
@@ -458,7 +468,7 @@ FROM
   LEFT JOIN pl_separated_union s ON ST_Intersects(s.geog, ST_Buffer(a.geog, 0.2)) AND v.side = s.side
 UNION ALL
 SELECT
-  row_number() over() id,
+  nextval('parking_lanes_id') id,
   NULL way_id,
   pl.side,
   NULL highway,
@@ -479,7 +489,7 @@ SELECT
   'OSM' "source:capacity",
   NULL width,
   pl.min_distance "offset",
-  ST_Transform(ST_OffsetCurve(ST_Transform(pl.geog::geometry, 25833), pl.min_distance), 4326)::geography geog,
+  ST_Transform(ST_OffsetCurve(ST_Transform(ST_LineMerge(pl.geog::geometry), 25833), pl.min_distance), 4326)::geography geog,
   NULL error_output
 FROM
   pl_separated pl
@@ -512,23 +522,23 @@ SELECT
   h.parking_lane_right_width_carriageway "parking:lane:right:width:carriageway",
   c.geom geom,
   CASE
-    WHEN p.side IN ('left') THEN ST_Transform(ST_ClosestPoint(ST_Transform(p.geog::geometry, 3857), ST_Transform(c.geog::geometry, 3857)), 4326)::geography
-    WHEN p.side IN ('right') THEN ST_Transform(ST_ClosestPoint(ST_Transform(p.geog::geometry, 3857), ST_Transform(c.geog::geometry, 3857)), 4326)::geography
+    WHEN p.side IN ('left') THEN ST_Transform(ST_ClosestPoint(ST_Transform(p.geog::geometry, 25833), ST_Transform(c.geog::geometry, 25833)), 4326)::geography
+    WHEN p.side IN ('right') THEN ST_Transform(ST_ClosestPoint(ST_Transform(p.geog::geometry, 25833), ST_Transform(c.geog::geometry, 25833)), 4326)::geography
   END geog_offset,
   CASE
      WHEN p.side IN ('left') THEN
        CASE
-        WHEN c.highway = 'traffic_signals' AND c.traffic_signals_direction IN ('forward', 'backward') THEN ST_Buffer(ST_Transform(ST_ClosestPoint(ST_Transform(p.geog::geometry, 3857), ST_Transform(c.geog::geometry, 3857)), 4326)::geography, 10)
-        WHEN c.crossing_kerb_extension = 'both' OR c.crossing_buffer_marking = 'both' THEN ST_Buffer(ST_Transform(ST_ClosestPoint(ST_Transform(p.geog::geometry, 3857), ST_Transform(c.geog::geometry, 3857)), 4326)::geography, 3)
-        WHEN c.crossing = 'zebra' OR c.crossing_ref = 'zebra' OR c.crossing = 'traffic_signals' THEN ST_Buffer(ST_Transform(ST_ClosestPoint(ST_Transform(p.geog::geometry, 3857), ST_Transform(c.geog::geometry, 3857)), 4326)::geography, 4.5)
-        WHEN c.crossing = 'marked' THEN ST_Buffer(ST_Transform(ST_ClosestPoint(ST_Transform(p.geog::geometry, 3857), ST_Transform(c.geog::geometry, 3857)), 4326)::geography, 2)
+        WHEN c.highway = 'traffic_signals' AND c.traffic_signals_direction IN ('forward', 'backward') THEN ST_Buffer(ST_Transform(ST_ClosestPoint(ST_Transform(p.geog::geometry, 25833), ST_Transform(c.geog::geometry, 25833)), 4326)::geography, 10)
+        WHEN c.crossing_kerb_extension = 'both' OR c.crossing_buffer_marking = 'both' THEN ST_Buffer(ST_Transform(ST_ClosestPoint(ST_Transform(p.geog::geometry, 25833), ST_Transform(c.geog::geometry, 25833)), 4326)::geography, 3)
+        WHEN c.crossing = 'zebra' OR c.crossing_ref = 'zebra' OR c.crossing = 'traffic_signals' THEN ST_Buffer(ST_Transform(ST_ClosestPoint(ST_Transform(p.geog::geometry, 25833), ST_Transform(c.geog::geometry, 25833)), 4326)::geography, 4.5)
+        WHEN c.crossing = 'marked' THEN ST_Buffer(ST_Transform(ST_ClosestPoint(ST_Transform(p.geog::geometry, 25833), ST_Transform(c.geog::geometry, 25833)), 4326)::geography, 2)
       END
     WHEN p.side IN ('right') THEN
       CASE
-        WHEN c.highway = 'traffic_signals' AND c.traffic_signals_direction IN ('forward', 'backward') THEN ST_Buffer(ST_Transform(ST_ClosestPoint(ST_Transform(p.geog::geometry, 3857), ST_Transform(c.geog::geometry, 3857)), 4326)::geography, 10)
-        WHEN c.crossing_kerb_extension = 'both' OR c.crossing_buffer_marking = 'both' THEN ST_Buffer(ST_Transform(ST_ClosestPoint(ST_Transform(p.geog::geometry, 3857), ST_Transform(c.geog::geometry, 3857)), 4326)::geography, 3)
-        WHEN c.crossing = 'zebra' OR c.crossing_ref = 'zebra' OR c.crossing = 'traffic_signals' THEN ST_Buffer(ST_Transform(ST_ClosestPoint(ST_Transform(p.geog::geometry, 3857), ST_Transform(c.geog::geometry, 3857)), 4326)::geography, 4.5)
-        WHEN c.crossing = 'marked' THEN ST_Buffer(ST_Transform(ST_ClosestPoint(ST_Transform(p.geog::geometry, 3857), ST_Transform(c.geog::geometry, 3857)), 4326)::geography, 2)
+        WHEN c.highway = 'traffic_signals' AND c.traffic_signals_direction IN ('forward', 'backward') THEN ST_Buffer(ST_Transform(ST_ClosestPoint(ST_Transform(p.geog::geometry, 25833), ST_Transform(c.geog::geometry, 25833)), 4326)::geography, 10)
+        WHEN c.crossing_kerb_extension = 'both' OR c.crossing_buffer_marking = 'both' THEN ST_Buffer(ST_Transform(ST_ClosestPoint(ST_Transform(p.geog::geometry, 25833), ST_Transform(c.geog::geometry, 25833)), 4326)::geography, 3)
+        WHEN c.crossing = 'zebra' OR c.crossing_ref = 'zebra' OR c.crossing = 'traffic_signals' THEN ST_Buffer(ST_Transform(ST_ClosestPoint(ST_Transform(p.geog::geometry, 25833), ST_Transform(c.geog::geometry, 25833)), 4326)::geography, 4.5)
+        WHEN c.crossing = 'marked' THEN ST_Buffer(ST_Transform(ST_ClosestPoint(ST_Transform(p.geog::geometry, 25833), ST_Transform(c.geog::geometry, 25833)), 4326)::geography, 2)
       END
   END geog_offset_buffer
 FROM
@@ -893,7 +903,7 @@ SELECT
     error_output error_output,
     geog::geometry(LineString, 4326) geom
 FROM pl_dev_geog
-WHERE ST_Length(geog) > 4
+WHERE ST_Length(geog) > 3.5
 ;
 DROP INDEX IF EXISTS parking_segments_geom_idx;
 CREATE INDEX parking_segments_geom_idx ON parking_segments USING gist (geom);

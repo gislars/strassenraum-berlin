@@ -19,7 +19,7 @@ export PGSERVICE=osmdb
 #
 if [ ! -f "${OSM_LOCAL_FILE}" ]; then
   echo "downloading ${OSM_DOWNLOAD_URL}"
-  wget -q ${OSM_DOWNLOAD_URL} -O ${OSM_LOCAL_FILE}
+  wget -q --show-progress ${OSM_DOWNLOAD_URL} -O ${OSM_LOCAL_FILE}
 else
   echo "file ${OSM_LOCAL_FILE} exists"
 fi

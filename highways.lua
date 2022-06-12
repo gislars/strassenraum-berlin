@@ -72,17 +72,6 @@ tables.footways = osm2pgsql.define_way_table('footways', {
     { column = 'error_output', type = 'jsonb' },
 })
 
-tables.pt_platform = osm2pgsql.define_way_table('pt_platform', {
-    { column = 'id', sql_type = 'serial', create_only = true },
-    { column = 'geom', type = 'linestring', projection = srid },
-    { column = 'name', type = 'text' },
-    { column = 'bus', type = 'text' },
-    { column = 'tram', type = 'text' },
-    { column = 'railway', type = 'text' },
-    { column = 'highway', type = 'text' },
-    { column = 'error_output', type = 'jsonb' },
-})
-
 tables.parking_poly = osm2pgsql.define_area_table('parking_poly', {
     { column = 'id', sql_type = 'serial', create_only = true },
     { column = 'geom', type = 'geometry', projection = srid },
@@ -105,6 +94,30 @@ tables.crossings = osm2pgsql.define_node_table('crossings', {
     { column = 'crossing_buffer_marking', type = 'text' },
     { column = 'crossing_kerb_extension', type = 'text' },
     { column = 'traffic_signals_direction', type = 'text' },
+    { column = 'geom', type = 'point' , projection = srid},
+})
+
+tables.pt_platform = osm2pgsql.define_way_table('pt_platform', {
+    { column = 'id', sql_type = 'serial', create_only = true },
+    { column = 'geom', type = 'linestring', projection = srid },
+    { column = 'name', type = 'text' },
+    { column = 'bus', type = 'text' },
+    { column = 'tram', type = 'text' },
+    { column = 'railway', type = 'text' },
+    { column = 'highway', type = 'text' },
+    { column = 'error_output', type = 'jsonb' },
+})
+
+tables.pt_stops = osm2pgsql.define_node_table('pt_stops', {
+    { column = 'id', sql_type = 'serial', create_only = true },
+    { column = 'name', type = 'text' },
+    { column = 'public_transport', type = 'text' },
+    { column = 'highway', type = 'text' },
+    { column = 'bus', type = 'bool' },
+    { column = 'tram', type = 'bool' },
+    { column = 'railway', type = 'text' },
+    { column = 'subway', type = 'bool' },
+    { column = 'light_rail', type = 'bool' },
     { column = 'geom', type = 'point' , projection = srid},
 })
 
@@ -879,6 +892,21 @@ function osm2pgsql.process_node(object)
         })
       end
     end
+
+    if object.tags.highway == "bus_stop" or object.tags.public_transport == "stop_position" then
+        --print("add row")
+        tables.pt_stops:add_row({
+          highway = object.tags["highway"],
+          name = object.tags["name"],
+          public_transport = object.tags["public_transport"],
+          bus = object.tags["bus"],
+          tram = object.tags["tram"],
+          railway = object.tags["railway"],
+          subway = object.tags["subway"],
+          light_rail = object.tags["light_rail"],
+        })
+    end
+
     -- if object.tags.emergency == "fire_hydrant" then
     --     tables.hydrant:add_row{
     --       emergency = object.tags["emergency"],

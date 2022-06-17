@@ -126,6 +126,44 @@ DROP INDEX IF EXISTS highway_union_geog_buffer_right_idx;
 CREATE INDEX highway_union_geog_buffer_right_idx ON highway_union USING gist (geog_buffer_right);
 
 
+DROP TABLE IF EXISTS highway_segments;
+CREATE TABLE highway_segments as
+WITH crossing_intersecting_highways AS(
+   SELECT
+     h.id AS lines_id,
+     h.highway_name as highway_name,
+     h.geog AS line_geog,
+     (ST_Union(c.geog::geometry))::geography AS blade
+   FROM highway_union h, highway_crossings c
+    WHERE h.geog && c.geog_buffer
+   GROUP BY h.id, h.highway_name, h.geog
+)
+SELECT
+  nextval('highway_segments_id') id,
+  lines_id,
+  highway_name,
+  --todo let ST_Splap accept geography
+  ((ST_Dump(ST_Splap(line_geog::geometry, blade::geometry, 0.0000000000001))).geom)::geography geog
+FROM
+  crossing_intersecting_highways
+;
+
+ALTER TABLE highway_segments ADD COLUMN IF NOT EXISTS geog_buffer_left geography;
+UPDATE highway_segments SET geog_buffer_left = ST_Buffer(geog, 8, 'side=left');
+ALTER TABLE highway_segments ADD COLUMN IF NOT EXISTS geog_buffer_right geography;
+UPDATE highway_segments SET geog_buffer_right = ST_Buffer(geog, 8, 'side=right');
+ALTER TABLE highway_segments ADD COLUMN IF NOT EXISTS geog_buffer geography;
+UPDATE highway_segments SET geog_buffer = ST_Buffer(geog, 8);
+
+DROP INDEX IF EXISTS highway_segments_geog_buffer_left_idx;
+CREATE INDEX highway_segments_geog_buffer_left_idx ON public.highway_segments USING gist (geog_buffer_left);
+DROP INDEX IF EXISTS highway_segments_geog_buffer_right_idx;
+CREATE INDEX highway_segments_geog_buffer_right_idx ON public.highway_segments USING gist (geog_buffer_right);
+DROP INDEX IF EXISTS highway_segments_geog_buffer_idx;
+CREATE INDEX highway_segments_geog_buffer_idx ON public.highway_segments USING gist (geog_buffer);
+
+
+
 DROP TABLE IF EXISTS highway_crossings;
 CREATE TABLE highway_crossings AS
 SELECT
@@ -1133,12 +1171,38 @@ SELECT
     width width,
     "offset" "offset",
     error_output error_output,
-    geog::geometry(LineString, 4326) geom
+    geog::geometry(LineString, 4326) geom,
+    geog
 FROM pl_dev_geog
 WHERE ST_Length(geog) > 1.7
 ;
 DROP INDEX IF EXISTS parking_segments_geom_idx;
 CREATE INDEX parking_segments_geom_idx ON parking_segments USING gist (geom);
+DROP INDEX IF EXISTS parking_segments_geog_idx;
+CREATE INDEX parking_segments_geog_idx ON parking_segments USING gist (geog);
+
+
+DROP TABLE IF EXISTS parking_summary;
+CREATE TABLE parking_summary AS
+SELECT
+  h.id,
+  h.highway_name,
+  SUM(p.capacity) capacity,
+  h.geog,
+  h.geog::geometry(LineString, 4326) geom
+FROM
+  highway_segments h
+  LEFT JOIN  parking_segments p ON ST_Intersects(h.geog_buffer, p.geom::geography)
+WHERE
+  p.geom::geography && h.geog_buffer
+GROUP BY
+  h.id, h.highway_name, h.geog
+;
+DROP INDEX IF EXISTS parking_summary_geom_idx;
+CREATE INDEX parking_summary_geom_idx ON parking_summary USING gist (geom);
+DROP INDEX IF EXISTS parking_summary_geog_idx;
+CREATE INDEX parking_summary_geog_idx ON parking_summary USING gist (geog);
+
 
 DROP TABLE IF EXISTS boundaries_stats;
 CREATE TABLE boundaries_stats AS

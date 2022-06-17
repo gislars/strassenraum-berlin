@@ -197,10 +197,24 @@ for _, k in ipairs(service_list) do
     service_types[k] = 1
 end
 
+local crossing_list = {
+'zebra',
+'marked',
+'traffic_signals',
+'no',
+'unmarked'
+}
+
+-- Prepare table 'crossings' for quick checking of highway types
+local crossing_types = {}
+for _, k in ipairs(crossing_list) do
+    crossing_types[k] = 1
+end
+
 -- list of public transport tags
 local pt_list = {'platform'}
 
--- Prepare table 'service_types' for quick checking of service types
+-- Prepare table 'pt' for quick checking of service types
 local pt_types = {}
 for _, k in ipairs(pt_list) do
     pt_types[k] = 1
@@ -875,6 +889,10 @@ end
 function osm2pgsql.process_node(object)
 
     local crossing_check = object.tags["crossing"]
+
+    if not crossing_types[crossing_check] then
+        return
+    end
 
 --    print("nodes",object.tags["crossing"], rev_crossing_exclude_values[crossing_check], object.tags.highway)
     if object.tags.highway == "traffic_signals" or object.tags.highway == "crossing" then

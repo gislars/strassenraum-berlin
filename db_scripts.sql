@@ -389,6 +389,8 @@ SELECT
   (ST_LineMerge(ST_Union(p.geom)))::geography geog
 FROM
   pl_separated p
+WHERE
+  ST_Length(p.geog) > 1.7
 GROUP BY
   p.side, p.h_id
 ;
@@ -606,10 +608,10 @@ FROM
 UNION ALL
 SELECT
   nextval('parking_lanes_id') id,
-  NULL way_id,
+  h.way_id way_id,
   pl.side,
-  NULL highway,
-  pl.highway_name::text "highway:name",
+  h.type highway,
+  h.name "highway:name",
   NULL "highway:width_proc",
   NULL "highway:width_proc:effective",
   NULL surface,
@@ -631,12 +633,27 @@ SELECT
     ELSE 'OSM'
   END "source:capacity",
   NULL width,
-  pl.min_distance "offset",
+  pl.min_distance "offset", --offset could also be h.parking_lane_*_offset
   ST_Transform(ST_OffsetCurve(ST_Transform(ST_LineMerge(pl.geog::geometry), 25833), pl.min_distance), 4326)::geography geog,
   NULL error_output
 FROM
   pl_separated pl
   LEFT JOIN parking_poly p ON p.id = pl.pp_id
+  JOIN LATERAL (
+    SELECT
+      h.*
+    FROM
+      highways h
+    WHERE
+      h.geog_buffer_right && p.geog
+      OR h.geog_buffer_left && p.geog
+    ORDER BY
+      --order by biggest intersection area
+      ST_Area(ST_Intersection(h.geog_buffer_right, p.geog)) + ST_Area(ST_Intersection(h.geog_buffer_left, p.geog)) DESC,
+      --afterwards by smallest distance
+      p.geog <-> h.geog
+    LIMIT 1
+  ) AS h ON true
 ;
 DROP INDEX IF EXISTS parking_lanes_geog_idx;
 CREATE INDEX parking_lanes_geog_idx ON parking_lanes USING gist (geog);
@@ -644,9 +661,41 @@ CREATE INDEX parking_lanes_geog_idx ON parking_lanes USING gist (geog);
 
 DROP TABLE IF EXISTS ped_crossings;
 CREATE TABLE ped_crossings AS
+WITH parking_lanes_single AS (
 SELECT
+    id,
+    way_id,
+    side,
+    highway,
+    "highway:name",
+    "highway:width_proc",
+    "highway:width_proc:effective",
+    surface,
+    parking,
+    orientation,
+    "position",
+    condition,
+    "condition:other",
+    "condition:other:time",
+    maxstay,
+    capacity_osm,
+    "source:capacity_osm",
+    capacity,
+    "source:capacity",
+    width,
+    "offset",
+    geog geog_multi,
+    error_output,
+    (ST_DUMP(pl.geog::geometry)).path,
+    ((ST_DUMP(pl.geog::geometry)).geom)::geography geog
+FROM
+  parking_lanes pl
+)
+
+SELECT DISTINCT ON (p.side, c.id)
   row_number() over() id,
   c.node_id,
+  c.id crossing_id,
   p.side,
   h.way_id highway_id,
   c.highway,
@@ -665,36 +714,65 @@ SELECT
   h.parking_lane_right_width_carriageway "parking:lane:right:width:carriageway",
   c.geom geom,
   CASE
-    WHEN p.side IN ('left') THEN ST_Transform(ST_ClosestPoint(ST_Transform(p.geog::geometry, 25833), ST_Transform(c.geog::geometry, 25833)), 4326)::geography
-    WHEN p.side IN ('right') THEN ST_Transform(ST_ClosestPoint(ST_Transform(p.geog::geometry, 25833), ST_Transform(c.geog::geometry, 25833)), 4326)::geography
+    WHEN p.side IN ('left') THEN ST_Transform(ST_ClosestPoint(ST_Transform(p.geog::geometry, 25833), c.geom), 4326)::geography
+    WHEN p.side IN ('right') THEN ST_Transform(ST_ClosestPoint(ST_Transform(p.geog::geometry, 25833), c.geom), 4326)::geography
   END geog_offset,
   CASE
      WHEN p.side IN ('left') THEN
        CASE
-        WHEN c.highway = 'traffic_signals' AND c.traffic_signals_direction IN ('forward', 'backward') THEN ST_Buffer(ST_Transform(ST_ClosestPoint(ST_Transform(p.geog::geometry, 25833), ST_Transform(c.geog::geometry, 25833)), 4326)::geography, 10)
-        WHEN c.crossing_kerb_extension = 'both' OR c.crossing_buffer_marking = 'both' THEN ST_Buffer(ST_Transform(ST_ClosestPoint(ST_Transform(p.geog::geometry, 25833), ST_Transform(c.geog::geometry, 25833)), 4326)::geography, 3)
-        WHEN c.crossing = 'zebra' OR c.crossing_ref = 'zebra' OR c.crossing = 'traffic_signals' THEN ST_Buffer(ST_Transform(ST_ClosestPoint(ST_Transform(p.geog::geometry, 25833), ST_Transform(c.geog::geometry, 25833)), 4326)::geography, 4.5)
-        WHEN c.crossing = 'marked' THEN ST_Buffer(ST_Transform(ST_ClosestPoint(ST_Transform(p.geog::geometry, 25833), ST_Transform(c.geog::geometry, 25833)), 4326)::geography, 2)
+        WHEN c.highway = 'traffic_signals' AND c.traffic_signals_direction IN ('backward') AND ST_Intersects(ST_Buffer(p.geog, COALESCE(p.offset, 4), 'side=left endcap=flat'), c.geog) THEN ST_Buffer(ST_Transform(ST_ClosestPoint(ST_Transform(p.geog::geometry, 25833), c.geom), 4326)::geography, 10)
+        WHEN c.highway = 'traffic_signals' AND c.traffic_signals_direction NOT IN ('forward', 'backward') AND ST_Intersects(ST_Buffer(p.geog, COALESCE(p.offset, 4), 'side=left endcap=flat'), c.geog) THEN ST_Buffer(ST_Transform(ST_ClosestPoint(ST_Transform(p.geog::geometry, 25833), c.geom), 4326)::geography, 10)
+        WHEN c.crossing_kerb_extension = 'both' OR c.crossing_buffer_marking = 'both' THEN ST_Buffer(ST_Transform(ST_ClosestPoint(ST_Transform(p.geog::geometry, 25833), c.geom), 4326)::geography, 3)
+        WHEN c.crossing_kerb_extension = p.side OR c.crossing_buffer_marking = p.side THEN ST_Buffer(ST_Transform(ST_ClosestPoint(ST_Transform(p.geog::geometry, 25833), c.geom), 4326)::geography, 3)
+        WHEN c.crossing = 'zebra' OR c.crossing_ref = 'zebra' OR c.crossing = 'traffic_signals' THEN ST_Buffer(ST_Transform(ST_ClosestPoint(ST_Transform(p.geog::geometry, 25833), c.geom), 4326)::geography, 4.5)
+        WHEN c.crossing = 'marked' THEN ST_Buffer(ST_Transform(ST_ClosestPoint(ST_Transform(p.geog::geometry, 25833), c.geom), 4326)::geography, 2)
+        --ELSE ST_Buffer(c.geog, 1)
       END
     WHEN p.side IN ('right') THEN
       CASE
-        WHEN c.highway = 'traffic_signals' AND c.traffic_signals_direction IN ('forward', 'backward') THEN ST_Buffer(ST_Transform(ST_ClosestPoint(ST_Transform(p.geog::geometry, 25833), ST_Transform(c.geog::geometry, 25833)), 4326)::geography, 10)
-        WHEN c.crossing_kerb_extension = 'both' OR c.crossing_buffer_marking = 'both' THEN ST_Buffer(ST_Transform(ST_ClosestPoint(ST_Transform(p.geog::geometry, 25833), ST_Transform(c.geog::geometry, 25833)), 4326)::geography, 3)
-        WHEN c.crossing = 'zebra' OR c.crossing_ref = 'zebra' OR c.crossing = 'traffic_signals' THEN ST_Buffer(ST_Transform(ST_ClosestPoint(ST_Transform(p.geog::geometry, 25833), ST_Transform(c.geog::geometry, 25833)), 4326)::geography, 4.5)
-        WHEN c.crossing = 'marked' THEN ST_Buffer(ST_Transform(ST_ClosestPoint(ST_Transform(p.geog::geometry, 25833), ST_Transform(c.geog::geometry, 25833)), 4326)::geography, 2)
+        WHEN c.highway = 'traffic_signals' AND c.traffic_signals_direction IN ('forward') AND ST_Intersects(ST_Buffer(p.geog, COALESCE(p.offset, 4), 'side=right endcap=flat'), c.geog) THEN ST_Buffer(ST_Transform(ST_ClosestPoint(ST_Transform(p.geog::geometry, 25833), c.geom), 4326)::geography, 10)
+        WHEN c.highway = 'traffic_signals' AND c.traffic_signals_direction NOT IN ('forward', 'backward') AND ST_Intersects(ST_Buffer(p.geog, COALESCE(p.offset, 4), 'side=left endcap=flat'), c.geog) THEN ST_Buffer(ST_Transform(ST_ClosestPoint(ST_Transform(p.geog::geometry, 25833), c.geom), 4326)::geography, 10)
+        WHEN c.crossing_kerb_extension = 'both' OR c.crossing_buffer_marking = 'both' THEN ST_Buffer(ST_Transform(ST_ClosestPoint(ST_Transform(p.geog::geometry, 25833), c.geom), 4326)::geography, 3)
+        WHEN c.crossing_kerb_extension = p.side OR c.crossing_buffer_marking = p.side THEN ST_Buffer(ST_Transform(ST_ClosestPoint(ST_Transform(p.geog::geometry, 25833), c.geom), 4326)::geography, 3)
+        WHEN c.crossing = 'zebra' OR c.crossing_ref = 'zebra' OR c.crossing = 'traffic_signals' THEN ST_Buffer(ST_Transform(ST_ClosestPoint(ST_Transform(p.geog::geometry, 25833), c.geom), 4326)::geography, 4.5)
+        WHEN c.crossing = 'marked' THEN ST_Buffer(ST_Transform(ST_ClosestPoint(ST_Transform(p.geog::geometry, 25833), c.geom), 4326)::geography, 2)
+        --ELSE ST_Buffer(c.geog, 1)
       END
-  END geog_offset_buffer
+  END geog_offset_buffer,
+  CASE
+    WHEN p.side IN ('right') THEN ST_Buffer(p.geog, COALESCE(p.offset, 4), 'side=left endcap=flat')
+    WHEN p.side IN ('left') THEN ST_Buffer(p.geog, COALESCE(p.offset, 4), 'side=right endcap=flat')
+  END  pl_buffer,
+  CASE
+    WHEN p.side IN ('left') THEN ST_Intersects(ST_Buffer(p.geog, COALESCE(p.offset, 4), 'side=left endcap=flat'), c.geog)
+    WHEN p.side IN ('right') THEN ST_Intersects(ST_Buffer(p.geog, COALESCE(p.offset, 4), 'side=right endcap=flat'), c.geog)
+  END thisone,
+  p.geog <-> (ST_Transform(c.geom, 4326))::geography dist_p_c,
+  p.path,
+  c.geog geom_crossing
 FROM
-  (VALUES ('left'), ('right')) _(side)
-  CROSS JOIN
+  --(VALUES ('left'), ('right')) _(side)
+  --CROSS JOIN
   crossings c
-  JOIN highways h ON ST_Intersects(c.geog, h.geog)
-  JOIN parking_lanes p ON p.way_id = h.way_id
+  JOIN highways h ON ST_Intersects(ST_Buffer(c.geog, 3.1), h.geog)
+  --JOIN parking_lanes_single p ON p.way_id = h.way_id
+  JOIN LATERAL (
+    SELECT
+      p.*
+    FROM
+      parking_lanes_single p
+    WHERE
+      p.way_id = h.way_id
+    ORDER BY
+      p.geog <-> (ST_Transform(c.geom, 4326))::geography
+    LIMIT 2
+  ) AS p ON true
 WHERE
-  "crossing_buffer_marking" IS NOT NULL OR
-  "crossing_kerb_extension" IS NOT NULL OR
-  c.highway = 'traffic_signals' OR
-  c.crossing != 'unmarked'
+  ("crossing_buffer_marking" IS NOT NULL
+  OR "crossing_kerb_extension" IS NOT NULL
+  OR c.highway IN ('traffic_signals', 'crossing') )
+  AND NOT (c.crossing IN ('unmarked') AND c.highway = 'crossing' AND COALESCE("crossing_buffer_marking", "crossing_kerb_extension") IS NULL)
+  --AND ST_Intersects(ST_Buffer(p.geog, COALESCE(p.offset, 4), 'endcap=flat'), c.geog)
 ;
 DROP INDEX IF EXISTS ped_crossings_geog_offset_buffer_idx;
 CREATE INDEX ped_crossings_geog_offset_buffer_idx ON ped_crossings USING gist (geog_offset_buffer);

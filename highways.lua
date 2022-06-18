@@ -8,6 +8,7 @@ tables.highways = osm2pgsql.define_way_table('highways', {
     { column = 'geom', type = 'linestring', projection = srid },
     { column = 'surface', type = 'text' },
     { column = 'name', type = 'text' },
+    { column = 'oneway', type = 'bool' },
     { column = 'parking', type = 'text' },
     { column = 'parking_lane_left', type = 'text' },
     { column = 'parking_lane_right', type = 'text' },
@@ -46,6 +47,7 @@ tables.service = osm2pgsql.define_way_table('service', {
     { column = 'geom', type = 'linestring', projection = srid },
     { column = 'surface', type = 'text' },
     { column = 'name', type = 'text' },
+    { column = 'oneway', type = 'bool' },
     { column = 'parking', type = 'text' },
     { column = 'parking_lane_left', type = 'text' },
     { column = 'parking_lane_right', type = 'text' },
@@ -812,6 +814,7 @@ function osm2pgsql.process_way(object)
         type = type,
         surface = object.tags["surface"],
         name = name,
+        oneway = object.tags["oneway"],
         parking = parking,
         parking_lane_left = parking_left,
         parking_lane_right = parking_right,
@@ -850,6 +853,7 @@ function osm2pgsql.process_way(object)
           type = type,
           surface = object.tags["surface"],
           name = name,
+          oneway = object.tags["oneway"],
           parking = parking,
           parking_lane_left = parking_left,
           parking_lane_right = parking_right,
@@ -890,9 +894,9 @@ function osm2pgsql.process_node(object)
 
     local crossing_check = object.tags["crossing"]
 
-    if not crossing_types[crossing_check] then
-        return
-    end
+    -- if not crossing_types[crossing_check] then
+    --     return
+    -- end
 
 --    print("nodes",object.tags["crossing"], rev_crossing_exclude_values[crossing_check], object.tags.highway)
     if object.tags.highway == "traffic_signals" or object.tags.highway == "crossing" then

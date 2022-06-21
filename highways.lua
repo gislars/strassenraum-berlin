@@ -2,6 +2,7 @@ local json = require('dkjson')
 local srid = 4326
 local tables = {}
 
+--TODO don't use boolean for oneway
 tables.highways = osm2pgsql.define_way_table('highways', {
     { column = 'id', sql_type = 'serial', create_only = true },
     { column = 'type', type = 'text' },
@@ -9,6 +10,9 @@ tables.highways = osm2pgsql.define_way_table('highways', {
     { column = 'surface', type = 'text' },
     { column = 'name', type = 'text' },
     { column = 'oneway', type = 'bool' },
+    { column = 'dual_carriageway', type = 'bool' },
+    { column = 'lanes', sql_type = 'numeric' },
+    { column = 'width', sql_type = 'numeric' },
     { column = 'parking', type = 'text' },
     { column = 'parking_lane_left', type = 'text' },
     { column = 'parking_lane_right', type = 'text' },
@@ -48,6 +52,9 @@ tables.service = osm2pgsql.define_way_table('service', {
     { column = 'surface', type = 'text' },
     { column = 'name', type = 'text' },
     { column = 'oneway', type = 'bool' },
+    { column = 'dual_carriageway', type = 'bool' },
+    { column = 'lanes', sql_type = 'numeric' },
+    { column = 'width', sql_type = 'numeric' },
     { column = 'parking', type = 'text' },
     { column = 'parking_lane_left', type = 'text' },
     { column = 'parking_lane_right', type = 'text' },
@@ -77,6 +84,7 @@ tables.footways = osm2pgsql.define_way_table('footways', {
 tables.parking_poly = osm2pgsql.define_area_table('parking_poly', {
     { column = 'id', sql_type = 'serial', create_only = true },
     { column = 'geom', type = 'geometry', projection = srid },
+    { column = 'amenity', type = 'text' },
     { column = 'access', type = 'text' },
     { column = 'capacity', sql_type = 'numeric' },
     { column = 'parking', type = 'text' },
@@ -449,9 +457,10 @@ function osm2pgsql.process_way(object)
     end
 
     -- process parking objects and push them to db table
-    local parking_amenity = object:grab_tag("amenity")
+    local parking_amenity = object.tags["amenity"]
     if object.is_closed and parking_amenity == "parking" then
         tables.parking_poly:add_row({
+          amenity = parking_amenity,
           access = object.tags["access"],
           capacity = parse_units(object.tags["capacity"]),
           building = object.tags["building"],
@@ -459,6 +468,18 @@ function osm2pgsql.process_way(object)
           parking_orientation = object.tags["parking:orientation"],
           parking_street_side_of = object.tags["parking:street_side:of"],
           parking_street_side_of_name = object.tags["parking:street_side:of:name"],
+          geom = { create = 'area'}
+        })
+        return
+    end
+
+    -- process parking objects and push them to db table
+    if object.is_closed and parking_amenity == "bicycle_parking" then
+        tables.parking_poly:add_row({
+          amenity = parking_amenity,
+          access = object.tags["access"],
+          capacity = parse_units(object.tags["capacity"]),
+          parking = object.tags["bicycle_parking:position"],
           geom = { create = 'area'}
         })
         return
@@ -815,6 +836,9 @@ function osm2pgsql.process_way(object)
         surface = object.tags["surface"],
         name = name,
         oneway = object.tags["oneway"],
+        dual_carriageway = object.tags["dual_carriageway"],
+        lanes = parse_units(object.tags["lanes"]),
+        width = parse_units(object.tags["width"]),
         parking = parking,
         parking_lane_left = parking_left,
         parking_lane_right = parking_right,
@@ -848,44 +872,47 @@ function osm2pgsql.process_way(object)
       }
 
     else
-      if service_types[type] then
+    if service_types[type] then
         tables.service:add_row{
-          type = type,
-          surface = object.tags["surface"],
-          name = name,
-          oneway = object.tags["oneway"],
-          parking = parking,
-          parking_lane_left = parking_left,
-          parking_lane_right = parking_right,
-          parking_lane_width_proc = width_proc,
-          parking_lane_width_effective = width_effective,
-          parking_lane_left_position = parking_left_position,
-          parking_lane_right_position = parking_right_position,
-          parking_lane_left_width = parking_left_width,
-          parking_lane_right_width = parking_right_width,
-          parking_lane_left_width_carriageway = parking_left_width_carriageway,
-          parking_lane_right_width_carriageway = parking_right_width_carriageway,
-          parking_lane_left_offset = parking_left_offset,
-          parking_lane_right_offset = parking_right_offset,
-          error_output  = json.encode(pl_error_output),
-          parking_condition_left = parking_condition_left,
-          parking_condition_left_other = parking_condition_left_other,
-          parking_condition_right = parking_condition_right,
-          parking_condition_right_other = parking_condition_right_other,
-          parking_condition_left_other_time = parking_condition_left_other_time,
-          parking_condition_right_other_time = parking_condition_right_other_time,
-          parking_condition_left_default = parking_condition_left_default,
-          parking_condition_right_default = parking_condition_right_default,
-          parking_condition_left_time_interval = parking_condition_left_time_interval,
-          parking_condition_right_time_interval = parking_condition_right_time_interval,
-          parking_condition_left_maxstay = parking_condition_left_maxstay,
-          parking_condition_right_maxstay = parking_condition_right_maxstay,
-          parking_lane_left_capacity = parking_lane_left_capacity,
-          parking_lane_right_capacity = parking_lane_right_capacity,
-          parking_lane_left_source_capacity = parking_lane_left_source_capacity,
-          parking_lane_right_source_capacity = parking_lane_right_source_capacity
+        type = type,
+        surface = object.tags["surface"],
+        name = name,
+        oneway = object.tags["oneway"],
+        dual_carriageway = object.tags["dual_carriageway"],
+        lanes = parse_units(object.tags["lanes"]),
+        width = parse_units(object.tags["width"]),
+        parking = parking,
+        parking_lane_left = parking_left,
+        parking_lane_right = parking_right,
+        parking_lane_width_proc = width_proc,
+        parking_lane_width_effective = width_effective,
+        parking_lane_left_position = parking_left_position,
+        parking_lane_right_position = parking_right_position,
+        parking_lane_left_width = parking_left_width,
+        parking_lane_right_width = parking_right_width,
+        parking_lane_left_width_carriageway = parking_left_width_carriageway,
+        parking_lane_right_width_carriageway = parking_right_width_carriageway,
+        parking_lane_left_offset = parking_left_offset,
+        parking_lane_right_offset = parking_right_offset,
+        error_output  = json.encode(pl_error_output),
+        parking_condition_left = parking_condition_left,
+        parking_condition_left_other = parking_condition_left_other,
+        parking_condition_right = parking_condition_right,
+        parking_condition_right_other = parking_condition_right_other,
+        parking_condition_left_other_time = parking_condition_left_other_time,
+        parking_condition_right_other_time = parking_condition_right_other_time,
+        parking_condition_left_default = parking_condition_left_default,
+        parking_condition_right_default = parking_condition_right_default,
+        parking_condition_left_time_interval = parking_condition_left_time_interval,
+        parking_condition_right_time_interval = parking_condition_right_time_interval,
+        parking_condition_left_maxstay = parking_condition_left_maxstay,
+        parking_condition_right_maxstay = parking_condition_right_maxstay,
+        parking_lane_left_capacity = parking_lane_left_capacity,
+        parking_lane_right_capacity = parking_lane_right_capacity,
+        parking_lane_left_source_capacity = parking_lane_left_source_capacity,
+        parking_lane_right_source_capacity = parking_lane_right_source_capacity
         }
-      end
+    end
     end
 
 end

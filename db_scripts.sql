@@ -44,9 +44,14 @@ CREATE INDEX highways_geog_buffer_right_idx ON public.highways USING gist (geog_
 
 ALTER TABLE parking_poly ADD COLUMN IF NOT EXISTS geog geography;
 UPDATE parking_poly SET geog = geom::geography;
-
 DROP INDEX IF EXISTS parking_poly_geog_idx;
 CREATE INDEX parking_poly_geog_idx ON public.parking_poly USING gist (geog);
+
+ALTER TABLE parking_bicycle ADD COLUMN IF NOT EXISTS geog geography;
+UPDATE parking_bicycle SET geog = geom::geography;
+DROP INDEX IF EXISTS parking_bicycle_geog_idx;
+CREATE INDEX parking_bicycle_geog_idx ON public.parking_bicycle USING gist (geog);
+
 
 ALTER TABLE service ADD COLUMN IF NOT EXISTS geog geography(LineString, 4326);
 UPDATE service SET geog = ST_Transform(geom, 4326)::geography;
@@ -59,9 +64,14 @@ DROP INDEX IF EXISTS service_geog_idx;
 CREATE INDEX service_geog_idx ON public.service USING gist (geog);
 
 
+
 ALTER TABLE crossings ADD COLUMN IF NOT EXISTS geog geography(Point, 4326);
 UPDATE crossings SET geog = geom::geography;
 ALTER TABLE crossings ALTER COLUMN geom TYPE geometry(Point, 25833) USING ST_Transform(geom, 25833);
+ALTER TABLE crossings ADD COLUMN IF NOT EXISTS geog_buffer geography;
+UPDATE crossings SET geog_buffer = ST_Buffer(geog, 3);
+DROP INDEX IF EXISTS crossings_geog_buffer_idx;
+CREATE INDEX crossings_geog_buffer_idx ON public.crossings USING gist (geog_buffer);
 DROP INDEX IF EXISTS crossings_geom_idx;
 CREATE INDEX crossings_geom_idx ON public.crossings USING gist (geom);
 DROP INDEX IF EXISTS crossings_geog_idx;
@@ -126,6 +136,28 @@ DROP INDEX IF EXISTS highway_union_geog_buffer_right_idx;
 CREATE INDEX highway_union_geog_buffer_right_idx ON highway_union USING gist (geog_buffer_right);
 
 
+DROP TABLE IF EXISTS highway_crossings;
+CREATE TABLE highway_crossings AS
+SELECT
+  row_number() over() id,
+   count(DISTINCT h1.id) anzahl,
+   ST_Intersection(h1.geog, h2.geog) geog,
+   ST_Buffer(ST_Intersection(h1.geog, h2.geog), 5) geog_buffer,
+   ST_Buffer(ST_Intersection(h1.geog, h2.geog), 10) geog_buffer10
+FROM
+  highway_union h1
+  JOIN highway_union h2 ON ST_Intersects(h1.geog, h2.geog)
+  and h1.id != h2.id
+  and h1.highway_name IS DISTINCT FROM h2.highway_name
+GROUP BY
+   ST_Intersection(h1.geog, h2.geog)
+;
+DROP INDEX IF EXISTS highway_crossings_geog_buffer_idx;
+CREATE INDEX highway_crossings_geog_buffer_idx ON highway_crossings USING gist (geog_buffer);
+DROP INDEX IF EXISTS highway_crossings_geog_idx;
+CREATE INDEX highway_crossings_geog_idx ON highway_crossings USING gist (geog);
+
+
 DROP TABLE IF EXISTS highway_segments;
 CREATE TABLE highway_segments as
 WITH crossing_intersecting_highways AS(
@@ -164,26 +196,7 @@ CREATE INDEX highway_segments_geog_buffer_idx ON public.highway_segments USING g
 
 
 
-DROP TABLE IF EXISTS highway_crossings;
-CREATE TABLE highway_crossings AS
-SELECT
-  row_number() over() id,
-   count(DISTINCT h1.id) anzahl,
-   ST_Intersection(h1.geog, h2.geog) geog,
-   ST_Buffer(ST_Intersection(h1.geog, h2.geog), 5) geog_buffer,
-   ST_Buffer(ST_Intersection(h1.geog, h2.geog), 10) geog_buffer10
-FROM
-  highway_union h1
-  JOIN highway_union h2 ON ST_Intersects(h1.geog, h2.geog)
-  and h1.id != h2.id
-  and h1.highway_name IS DISTINCT FROM h2.highway_name
-GROUP BY
-   ST_Intersection(h1.geog, h2.geog)
-;
-DROP INDEX IF EXISTS highway_crossings_geog_buffer_idx;
-CREATE INDEX highway_crossings_geog_buffer_idx ON highway_crossings USING gist (geog_buffer);
-DROP INDEX IF EXISTS highway_crossings_geog_idx;
-CREATE INDEX highway_crossings_geog_idx ON highway_crossings USING gist (geog);
+
 
 
 
@@ -434,6 +447,8 @@ GROUP BY
 ;
 DROP INDEX IF EXISTS pl_separated_union_geog_idx;
 CREATE INDEX pl_separated_union_geog_idx ON pl_separated_union USING gist (geog);
+
+
 
 
 
@@ -813,39 +828,42 @@ DROP INDEX IF EXISTS parking_lanes_geog_idx;
 CREATE INDEX parking_lanes_geog_idx ON parking_lanes USING gist (geog);
 
 
+DROP SEQUENCE IF EXISTS ped_crossings_id;
+CREATE SEQUENCE ped_crossings_id;
+
+
 DROP TABLE IF EXISTS ped_crossings;
 CREATE TABLE ped_crossings AS
 WITH parking_lanes_single AS (
-SELECT
-    id,
-    way_id,
-    side,
-    highway,
-    "highway:name",
-    "highway:width_proc",
-    "highway:width_proc:effective",
-    surface,
-    parking,
-    orientation,
-    "position",
-    condition,
-    "condition:other",
-    "condition:other:time",
-    maxstay,
-    capacity_osm,
-    "source:capacity_osm",
-    capacity,
-    "source:capacity",
-    width,
-    "offset",
-    geog geog_multi,
-    error_output,
-    (ST_DUMP(pl.geog::geometry)).path,
-    ((ST_DUMP(pl.geog::geometry)).geom)::geography geog
-FROM
-  parking_lanes pl
+  SELECT
+      id,
+      way_id,
+      side,
+      highway,
+      "highway:name",
+      "highway:width_proc",
+      "highway:width_proc:effective",
+      surface,
+      parking,
+      orientation,
+      "position",
+      condition,
+      "condition:other",
+      "condition:other:time",
+      maxstay,
+      capacity_osm,
+      "source:capacity_osm",
+      capacity,
+      "source:capacity",
+      width,
+      "offset",
+      geog geog_multi,
+      error_output,
+      (ST_DUMP(pl.geog::geometry)).path,
+      ((ST_DUMP(pl.geog::geometry)).geom)::geography geog
+  FROM
+    parking_lanes pl
 )
-
 SELECT DISTINCT ON (p.side, c.id)
   row_number() over() id,
   c.node_id,
@@ -874,7 +892,7 @@ SELECT DISTINCT ON (p.side, c.id)
   CASE
      WHEN p.side IN ('left') THEN
        CASE
-        WHEN c.highway = 'traffic_signals' AND c.traffic_signals_direction IN ('backward') AND ST_Intersects(ST_Buffer(p.geog, COALESCE(p.offset, 4), 'side=left endcap=flat'), c.geog) THEN ST_Buffer(ST_Transform(ST_ClosestPoint(ST_Transform(p.geog::geometry, 25833), c.geom), 4326)::geography, 10)
+        WHEN c.highway = 'traffic_signals' AND c.traffic_signals_direction IN ('backward') THEN ST_Buffer(ST_Transform(ST_ClosestPoint(ST_Transform(p.geog::geometry, 25833), c.geom), 4326)::geography, 10)
         WHEN c.highway = 'traffic_signals' AND c.traffic_signals_direction NOT IN ('forward', 'backward') AND ST_Intersects(ST_Buffer(p.geog, COALESCE(p.offset, 4), 'side=left endcap=flat'), c.geog) THEN ST_Buffer(ST_Transform(ST_ClosestPoint(ST_Transform(p.geog::geometry, 25833), c.geom), 4326)::geography, 10)
         WHEN c.crossing_kerb_extension = 'both' OR c.crossing_buffer_marking = 'both' THEN ST_Buffer(ST_Transform(ST_ClosestPoint(ST_Transform(p.geog::geometry, 25833), c.geom), 4326)::geography, 3)
         WHEN c.crossing_kerb_extension = p.side OR c.crossing_buffer_marking = p.side THEN ST_Buffer(ST_Transform(ST_ClosestPoint(ST_Transform(p.geog::geometry, 25833), c.geom), 4326)::geography, 3)
@@ -884,7 +902,7 @@ SELECT DISTINCT ON (p.side, c.id)
       END
     WHEN p.side IN ('right') THEN
       CASE
-        WHEN c.highway = 'traffic_signals' AND c.traffic_signals_direction IN ('forward') AND ST_Intersects(ST_Buffer(p.geog, COALESCE(p.offset, 4), 'side=right endcap=flat'), c.geog) THEN ST_Buffer(ST_Transform(ST_ClosestPoint(ST_Transform(p.geog::geometry, 25833), c.geom), 4326)::geography, 10)
+        WHEN c.highway = 'traffic_signals' AND c.traffic_signals_direction IN ('forward') THEN ST_Buffer(ST_Transform(ST_ClosestPoint(ST_Transform(p.geog::geometry, 25833), c.geom), 4326)::geography, 10)
         WHEN c.highway = 'traffic_signals' AND c.traffic_signals_direction NOT IN ('forward', 'backward') AND ST_Intersects(ST_Buffer(p.geog, COALESCE(p.offset, 4), 'side=left endcap=flat'), c.geog) THEN ST_Buffer(ST_Transform(ST_ClosestPoint(ST_Transform(p.geog::geometry, 25833), c.geom), 4326)::geography, 10)
         WHEN c.crossing_kerb_extension = 'both' OR c.crossing_buffer_marking = 'both' THEN ST_Buffer(ST_Transform(ST_ClosestPoint(ST_Transform(p.geog::geometry, 25833), c.geom), 4326)::geography, 3)
         WHEN c.crossing_kerb_extension = p.side OR c.crossing_buffer_marking = p.side THEN ST_Buffer(ST_Transform(ST_ClosestPoint(ST_Transform(p.geog::geometry, 25833), c.geom), 4326)::geography, 3)
@@ -893,23 +911,20 @@ SELECT DISTINCT ON (p.side, c.id)
         --ELSE ST_Buffer(c.geog, 1)
       END
   END geog_offset_buffer,
-  CASE
-    WHEN p.side IN ('right') THEN ST_Buffer(p.geog, COALESCE(p.offset, 4), 'side=left endcap=flat')
-    WHEN p.side IN ('left') THEN ST_Buffer(p.geog, COALESCE(p.offset, 4), 'side=right endcap=flat')
-  END  pl_buffer,
-  CASE
-    WHEN p.side IN ('left') THEN ST_Intersects(ST_Buffer(p.geog, COALESCE(p.offset, 4), 'side=left endcap=flat'), c.geog)
-    WHEN p.side IN ('right') THEN ST_Intersects(ST_Buffer(p.geog, COALESCE(p.offset, 4), 'side=right endcap=flat'), c.geog)
-  END thisone,
-  p.geog <-> (ST_Transform(c.geom, 4326))::geography dist_p_c,
-  p.path,
+--   CASE
+--     WHEN p.side IN ('right') THEN ST_Buffer(p.geog, COALESCE(p.offset, 4), 'side=left endcap=flat')
+--     WHEN p.side IN ('left') THEN ST_Buffer(p.geog, COALESCE(p.offset, 4), 'side=right endcap=flat')
+--   END  pl_buffer,
+--   CASE
+--     WHEN p.side IN ('left') THEN ST_Intersects(ST_Buffer(p.geog, COALESCE(p.offset, 4), 'side=left endcap=flat'), c.geog)
+--     WHEN p.side IN ('right') THEN ST_Intersects(ST_Buffer(p.geog, COALESCE(p.offset, 4), 'side=right endcap=flat'), c.geog)
+--   END thisone,
+--   p.geog <-> (ST_Transform(c.geom, 4326))::geography dist_p_c,
+--   p.path,
   c.geog geom_crossing
 FROM
-  --(VALUES ('left'), ('right')) _(side)
-  --CROSS JOIN
   crossings c
-  JOIN highways h ON ST_Intersects(ST_Buffer(c.geog, 3.1), h.geog)
-  --JOIN parking_lanes_single p ON p.way_id = h.way_id
+  JOIN highways h ON ST_Intersects(c.geog_buffer, h.geog)
   JOIN LATERAL (
     SELECT
       p.*
@@ -918,7 +933,7 @@ FROM
     WHERE
       p.way_id = h.way_id
     ORDER BY
-      p.geog <-> (ST_Transform(c.geom, 4326))::geography
+      p.geog <-> c.geog
     LIMIT 2
   ) AS p ON true
 WHERE
@@ -926,13 +941,12 @@ WHERE
   OR "crossing_kerb_extension" IS NOT NULL
   OR c.highway IN ('traffic_signals', 'crossing') )
   AND NOT (c.crossing IN ('unmarked') AND c.highway = 'crossing' AND COALESCE("crossing_buffer_marking", "crossing_kerb_extension") IS NULL)
-  --AND ST_Intersects(ST_Buffer(p.geog, COALESCE(p.offset, 4), 'endcap=flat'), c.geog)
 ;
 DROP INDEX IF EXISTS ped_crossings_geog_offset_buffer_idx;
 CREATE INDEX ped_crossings_geog_offset_buffer_idx ON ped_crossings USING gist (geog_offset_buffer);
 
-DROP TABLE IF EXISTS crossing_buffer;
-CREATE TABLE crossing_buffer AS
+DROP TABLE IF EXISTS buffer_crossing;
+CREATE TABLE buffer_crossing AS
 SELECT
   row_number() over() id,
   highway,
@@ -955,8 +969,8 @@ SELECT
 FROM
   ped_crossings
 ;
-DROP INDEX IF EXISTS crossing_buffer_geog_idx;
-CREATE INDEX crossing_buffer_geog_idx ON crossing_buffer USING gist (geog);
+DROP INDEX IF EXISTS buffer_crossing_geog_idx;
+CREATE INDEX buffer_crossing_geog_idx ON buffer_crossing USING gist (geog);
 
 
 DROP TABLE IF EXISTS ssr;

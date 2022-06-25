@@ -53,11 +53,6 @@ UPDATE parking_poly SET geog = geom::geography;
 DROP INDEX IF EXISTS parking_poly_geog_idx;
 CREATE INDEX parking_poly_geog_idx ON public.parking_poly USING gist (geog);
 
-ALTER TABLE parking_bicycle ADD COLUMN IF NOT EXISTS geog geography;
-UPDATE parking_bicycle SET geog = geom::geography;
-DROP INDEX IF EXISTS parking_bicycle_geog_idx;
-CREATE INDEX parking_bicycle_geog_idx ON public.parking_bicycle USING gist (geog);
-
 
 ALTER TABLE service ADD COLUMN IF NOT EXISTS geog geography(LineString, 4326);
 UPDATE service SET geog = ST_Transform(geom, 4326)::geography;

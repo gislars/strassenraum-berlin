@@ -41,6 +41,12 @@ CREATE INDEX highways_geog_buffer_left_idx ON public.highways USING gist (geog_b
 DROP INDEX IF EXISTS highways_geog_buffer_right_idx;
 CREATE INDEX highways_geog_buffer_right_idx ON public.highways USING gist (geog_buffer_right);
 
+-- ALTER TABLE trees ADD COLUMN IF NOT EXISTS geog geography(Point, 4326);
+-- UPDATE trees SET geog = geom::geography;
+-- ALTER TABLE trees ADD COLUMN IF NOT EXISTS geog_buffer geography;
+-- UPDATE trees SET geog_buffer = ST_Buffer(geog, 1);
+-- DROP INDEX IF EXISTS trees_geog_buffer_idx;
+-- CREATE INDEX trees_geog_buffer_idx ON public.trees USING gist (geog_buffer);
 
 ALTER TABLE parking_poly ADD COLUMN IF NOT EXISTS geog geography;
 UPDATE parking_poly SET geog = geom::geography;
@@ -157,6 +163,47 @@ CREATE INDEX highway_crossings_geog_buffer_idx ON highway_crossings USING gist (
 DROP INDEX IF EXISTS highway_crossings_geog_idx;
 CREATE INDEX highway_crossings_geog_idx ON highway_crossings USING gist (geog);
 
+
+ALTER TABLE highways ADD COLUMN IF NOT EXISTS geom_shorten geometry;
+UPDATE highways h
+SET geom_shorten = hc.geom_short
+FROM
+  (
+    SELECT
+      h.id,
+      st_difference(
+        h.geog::geometry,
+        ST_SetSRID(COALESCE(ST_Union(c.geog_buffer::geometry), 'GEOMETRYCOLLECTION EMPTY'::geometry), 4326)::geometry
+      )  geom_short
+    FROM
+      highways h,
+      highway_crossings c
+    WHERE
+      ST_Intersects(h.geog, c.geog_buffer)
+    GROUP BY
+      h.id , h.geog
+  ) hc
+WHERE
+  h.id = hc.id
+;
+
+ALTER TABLE highways DROP COLUMN IF EXISTS geog_shorten;
+ALTER TABLE highways ADD COLUMN IF NOT EXISTS geog_shorten geography(MultiLineString, 4326);
+UPDATE highways SET geog_shorten = ST_Multi(ST_Transform(geom_shorten, 4326))::geography;
+
+ALTER TABLE highways ADD COLUMN IF NOT EXISTS geog_shorten_buffer_left geography;
+UPDATE highways SET geog_shorten_buffer_left = ST_Buffer(geog_shorten, 8, 'side=left');
+ALTER TABLE highways ADD COLUMN IF NOT EXISTS geog_shorten_buffer_right geography;
+UPDATE highways SET geog_shorten_buffer_right = ST_Buffer(geog_shorten, 8, 'side=right');
+
+DROP INDEX IF EXISTS highways_geog_shorten_buffer_left_idx;
+CREATE INDEX highways_geog_shorten_buffer_left_idx ON public.highways USING gist (geog_shorten_buffer_left);
+DROP INDEX IF EXISTS highways_geog_shorten_buffer_right_idx;
+CREATE INDEX highways_geog_shorten_buffer_right_idx ON public.highways USING gist (geog_shorten_buffer_right);
+
+
+DROP SEQUENCE IF EXISTS highway_segments_id;
+CREATE SEQUENCE highway_segments_id;
 
 DROP TABLE IF EXISTS highway_segments;
 CREATE TABLE highway_segments as
@@ -624,7 +671,7 @@ SELECT
   p.id pt_tram_id,
   p.name,
   'left' side,
-  
+
   ST_Transform(
     ST_OffsetCurve(
       --get highway intersection with buffered tram_stop
@@ -746,7 +793,7 @@ SELECT
         ST_OffsetCurve(
           ST_Transform(
             st_difference(
-              a.geog::geometry,
+              a.geog_shorten::geometry,
               ST_SetSRID(COALESCE(ST_Buffer(s.geog, 0.2), 'GEOMETRYCOLLECTION EMPTY'::geography), 4326)::geometry
             ),
             25833
@@ -759,7 +806,7 @@ SELECT
         ST_OffsetCurve(
           ST_Transform(
             st_difference(
-              a.geog::geometry,
+              a.geog_shorten::geometry,
               ST_SetSRID(COALESCE(ST_Buffer(s.geog, 0.2), 'GEOMETRYCOLLECTION EMPTY'::geography), 4326)::geometry
             ),
             25833
@@ -814,11 +861,11 @@ FROM
     FROM
       highways h
     WHERE
-      h.geog_buffer_right && p.geog
-      OR h.geog_buffer_left && p.geog
+      h.geog_shorten_buffer_right && p.geog
+      OR h.geog_shorten_buffer_left && p.geog
     ORDER BY
       --order by biggest intersection area
-      ST_Area(ST_Intersection(h.geog_buffer_right, p.geog)) + ST_Area(ST_Intersection(h.geog_buffer_left, p.geog)) DESC,
+      ST_Area(ST_Intersection(h.geog_shorten_buffer_right, p.geog)) + ST_Area(ST_Intersection(h.geog_shorten_buffer_left, p.geog)) DESC,
       --afterwards by smallest distance
       p.geog <-> h.geog
     LIMIT 1

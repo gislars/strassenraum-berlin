@@ -18,7 +18,6 @@ CREATE OR REPLACE FUNCTION ST_Splap(geom1 geometry, geom2 geometry, double preci
 --   RETURNS text LANGUAGE sql STABLE PARALLEL RESTRICTED AS
 -- 'SELECT val FROM const WHERE const_id = $1';
 
-
 --transform to local SRS , we can use meters instead of degree for calculations
 --TODO check if all ST_* functions used are fine with geography type -> change to geography type
 ALTER TABLE highways ADD COLUMN IF NOT EXISTS geog geography(LineString, 4326);
@@ -53,7 +52,6 @@ UPDATE parking_poly SET geog = geom::geography;
 DROP INDEX IF EXISTS parking_poly_geog_idx;
 CREATE INDEX parking_poly_geog_idx ON public.parking_poly USING gist (geog);
 
-
 ALTER TABLE service ADD COLUMN IF NOT EXISTS geog geography(LineString, 4326);
 UPDATE service SET geog = ST_Transform(geom, 4326)::geography;
 ALTER TABLE service ALTER COLUMN geom TYPE geometry(LineString, 25833) USING ST_Transform(geom, 25833);
@@ -63,7 +61,6 @@ DROP INDEX IF EXISTS service_geom_idx;
 CREATE INDEX service_geom_idx ON public.service USING gist (geom);
 DROP INDEX IF EXISTS service_geog_idx;
 CREATE INDEX service_geog_idx ON public.service USING gist (geog);
-
 
 
 ALTER TABLE crossings ADD COLUMN IF NOT EXISTS geog geography(Point, 4326);
@@ -102,7 +99,6 @@ CREATE INDEX pt_platform_geom_idx ON public.pt_platform USING gist (geom);
 DROP INDEX IF EXISTS pt_platform_geog_idx;
 CREATE INDEX pt_platform_geog_idx ON public.pt_platform USING gist (geog);
 
-
 DROP TABLE IF EXISTS highway_union;
 CREATE TABLE highway_union AS
 WITH hw_union AS (
@@ -136,7 +132,6 @@ CREATE INDEX highway_union_geog_buffer_left_idx ON highway_union USING gist (geo
 DROP INDEX IF EXISTS highway_union_geog_buffer_right_idx;
 CREATE INDEX highway_union_geog_buffer_right_idx ON highway_union USING gist (geog_buffer_right);
 
-
 DROP TABLE IF EXISTS highway_crossings;
 CREATE TABLE highway_crossings AS
 SELECT
@@ -158,10 +153,9 @@ CREATE INDEX highway_crossings_geog_buffer_idx ON highway_crossings USING gist (
 DROP INDEX IF EXISTS highway_crossings_geog_idx;
 CREATE INDEX highway_crossings_geog_idx ON highway_crossings USING gist (geog);
 
-
 ALTER TABLE highways ADD COLUMN IF NOT EXISTS geom_shorten geometry;
 UPDATE highways h
-SET geom_shorten = hc.geom_short
+SET geom_shorten = ST_Transform(hc.geom_short, 25833)
 FROM
   (
     SELECT
@@ -169,7 +163,7 @@ FROM
       st_difference(
         h.geog::geometry,
         ST_SetSRID(COALESCE(ST_Union(c.geog_buffer::geometry), 'GEOMETRYCOLLECTION EMPTY'::geometry), 4326)::geometry
-      )  geom_short
+      ) geom_short
     FROM
       highways h,
       highway_crossings c
@@ -182,6 +176,8 @@ WHERE
   h.id = hc.id
 ;
 
+UPDATE highways h SET geom_shorten = ST_Transform(geom, 25833) WHERE geom_shorten IS NULL;
+
 ALTER TABLE highways DROP COLUMN IF EXISTS geog_shorten;
 ALTER TABLE highways ADD COLUMN IF NOT EXISTS geog_shorten geography(MultiLineString, 4326);
 UPDATE highways SET geog_shorten = ST_Multi(ST_Transform(geom_shorten, 4326))::geography;
@@ -191,11 +187,13 @@ UPDATE highways SET geog_shorten_buffer_left = ST_Buffer(geog_shorten, 8, 'side=
 ALTER TABLE highways ADD COLUMN IF NOT EXISTS geog_shorten_buffer_right geography;
 UPDATE highways SET geog_shorten_buffer_right = ST_Buffer(geog_shorten, 8, 'side=right');
 
+DROP INDEX IF EXISTS highways_geom_shorten_idx;
+CREATE INDEX highways_geom_shorten_idx ON public.highways USING gist (geom_shorten);
+
 DROP INDEX IF EXISTS highways_geog_shorten_buffer_left_idx;
 CREATE INDEX highways_geog_shorten_buffer_left_idx ON public.highways USING gist (geog_shorten_buffer_left);
 DROP INDEX IF EXISTS highways_geog_shorten_buffer_right_idx;
 CREATE INDEX highways_geog_shorten_buffer_right_idx ON public.highways USING gist (geog_shorten_buffer_right);
-
 
 DROP SEQUENCE IF EXISTS highway_segments_id;
 CREATE SEQUENCE highway_segments_id;
@@ -235,12 +233,6 @@ DROP INDEX IF EXISTS highway_segments_geog_buffer_right_idx;
 CREATE INDEX highway_segments_geog_buffer_right_idx ON public.highway_segments USING gist (geog_buffer_right);
 DROP INDEX IF EXISTS highway_segments_geog_buffer_idx;
 CREATE INDEX highway_segments_geog_buffer_idx ON public.highway_segments USING gist (geog_buffer);
-
-
-
-
-
-
 
 DROP SEQUENCE IF EXISTS highway_union_parking_poly_id;
 CREATE SEQUENCE highway_union_parking_poly_id;
@@ -285,8 +277,6 @@ DROP INDEX IF EXISTS highway_union_parking_poly_geog_buffer_right_idx;
 CREATE INDEX highway_union_parking_poly_geog_buffer_right_idx ON highway_union_parking_poly USING gist (geog_buffer_right);
 DROP INDEX IF EXISTS highway_union_parking_poly_geog_buffer_left_idx;
 CREATE INDEX highway_union_parking_poly_geog_buffer_left_idx ON highway_union_parking_poly USING gist (geog_buffer_left);
-
-
 
 DROP SEQUENCE IF EXISTS pp_points_id;
 CREATE SEQUENCE pp_points_id;
@@ -360,8 +350,6 @@ DROP INDEX IF EXISTS pp_points_geom_idx;
 CREATE INDEX pp_points_geom_idx ON pp_points USING gist (geom);
 DROP INDEX IF EXISTS pp_points_geog_idx;
 CREATE INDEX pp_points_geog_idx ON pp_points USING gist (geog);
-
-
 
 DROP SEQUENCE IF EXISTS pl_separated_id;
 CREATE SEQUENCE pl_separated_id;
@@ -470,8 +458,6 @@ CREATE INDEX pl_separated_geom_idx ON pl_separated USING gist (geom);
 DROP INDEX IF EXISTS pl_separated_geog_idx;
 CREATE INDEX pl_separated_geog_idx ON pl_separated USING gist (geog);
 
-
-
 DROP TABLE IF EXISTS pl_separated_union;
 CREATE TABLE pl_separated_union AS
 SELECT
@@ -489,246 +475,6 @@ GROUP BY
 ;
 DROP INDEX IF EXISTS pl_separated_union_geog_idx;
 CREATE INDEX pl_separated_union_geog_idx ON pl_separated_union USING gist (geog);
-
-
-
-
-
-DROP SEQUENCE IF EXISTS pt_bus_id;
-CREATE SEQUENCE pt_bus_id;
-
-DROP TABLE IF EXISTS pt_bus;
-CREATE TABLE pt_bus AS
-SELECT
-  nextval('pt_bus_id') id,
-  p.node_id,
-  p.id pt_bus_id,
-  p.name,
-  'right' side,
-  ST_Transform(
-    ST_OffsetCurve(
-      --get highway intersection with buffered bus_stop
-      ST_Intersection(
-        ST_Transform((h.geog)::geometry, 25833),
-        --buffer bus_stop with 15 m
-        ST_Buffer(
-          --snap bus_stop on highway
-          ST_ClosestPoint(
-            ST_Transform(h.geog::geometry, 25833),
-            ST_Transform(p.geog::geometry, 25833)
-          )
-          , 15
-        )
-      )
-      , h.parking_lane_right_offset
-    )
-    , 4326
-  ) geom
-FROM
-  pt_stops p
-  JOIN LATERAL (
-    SELECT
-      h.*
-    FROM
-      highways h
-    WHERE
-      ST_Intersects(h.geog_buffer_right, p.geog)
-    ORDER BY
-      p.geog <-> h.geog
-    LIMIT 1
-  ) AS h ON true
-WHERE
-  p.geog && h.geog_buffer_right
-  AND p.highway = 'bus_stop'
-UNION ALL
-SELECT
-  nextval('pt_bus_id') id,
-  p.node_id,
-  p.id pt_bus_id,
-  p.name,
-  'left' side,
-  ST_Transform(
-    ST_OffsetCurve(
-      --get highway intersection with buffered bus_stop
-      ST_Intersection(
-        ST_Transform((h.geog)::geometry, 25833),
-        --buffer bus_stop with 15 m
-        ST_Buffer(
-          --snap bus_stop on highway
-          ST_ClosestPoint(
-            ST_Transform(h.geog::geometry, 25833),
-            ST_Transform(p.geog::geometry, 25833)
-          )
-          , 15
-        )
-      )
-      , h.parking_lane_left_offset
-    )
-    , 4326
-  ) geom
-FROM
-  pt_stops p
-  JOIN LATERAL (
-    SELECT
-      h.*
-    FROM
-      highways h
-    WHERE
-      ST_Intersects(h.geog_buffer_left, p.geog)
-    ORDER BY
-      p.geog <-> h.geog
-    LIMIT 1
-  ) AS h ON true
-WHERE
-  p.geog && h.geog_buffer_left
-  AND p.highway = 'bus_stop'
-;
---TODO dont do this
-DELETE FROM pt_bus WHERE ST_GeometryType(geom) = 'ST_MultiLineString';
-
-ALTER TABLE pt_bus ADD COLUMN IF NOT EXISTS geog geography(LineString, 4326);
-UPDATE pt_bus SET geog = geom::geography;
-
-DROP INDEX IF EXISTS pt_bus_geom_idx;
-CREATE INDEX pt_bus_geom_idx ON public.pt_bus USING gist (geom);
-DROP INDEX IF EXISTS pt_bus_geog_idx;
-CREATE INDEX pt_bus_geog_idx ON public.pt_bus USING gist (geog);
-
-
-
-
-DROP TABLE IF EXISTS buffer_pt_bus;
-CREATE TABLE buffer_pt_bus AS
-SELECT
-  p.id,
-  (ST_Union(ST_Buffer(b.geog, 1, 'endcap=flat')::geometry))::geography geog
-FROM
-  parking_lanes p JOIN pt_bus b ON st_intersects(b.geog, p.geog)
-WHERE
-  p.parking NOT IN ('street_side')
-GROUP BY
-  p.id
-;
-DROP INDEX IF EXISTS buffer_pt_bus_geog_idx;
-CREATE INDEX buffer_pt_bus_geog_idx ON buffer_pt_bus USING gist (geog);
-
-
-DROP SEQUENCE IF EXISTS pt_tram_id;
-CREATE SEQUENCE pt_tram_id;
-
-DROP TABLE IF EXISTS pt_tram;
-CREATE TABLE pt_tram AS
-SELECT
-  nextval('pt_tram_id') id,
-  p.node_id,
-  p.id pt_tram_id,
-  p.name,
-  'right' side,
-  ST_Transform(
-    ST_OffsetCurve(
-      --get highway intersection with buffered tram_stop
-      ST_Intersection(
-        ST_Transform((h.geog)::geometry, 25833),
-        --buffer tram_stop with 15 m
-        ST_Buffer(
-          --snap tram_stop on highway
-          ST_ClosestPoint(
-            ST_Transform(h.geog::geometry, 25833),
-            ST_Transform(p.geog::geometry, 25833)
-          )
-          , 15
-        )
-      )
-      , h.parking_lane_right_offset
-    )
-    , 4326
-  ) geom
-FROM
-  pt_stops p
-  JOIN LATERAL (
-    SELECT
-      h.*
-    FROM
-      highways h
-    WHERE
-      ST_Intersects(h.geog_buffer_right, p.geog)
-    ORDER BY
-      p.geog <-> h.geog
-    LIMIT 1
-  ) AS h ON true
-WHERE
-  p.geog && h.geog_buffer_right
-  AND p.railway = 'tram_stop'
-UNION ALL
-SELECT
-  nextval('pt_tram_id') id,
-  p.node_id,
-  p.id pt_tram_id,
-  p.name,
-  'left' side,
-
-  ST_Transform(
-    ST_OffsetCurve(
-      --get highway intersection with buffered tram_stop
-      ST_Intersection(
-        ST_Transform((h.geog)::geometry, 25833),
-        --buffer tram_stop with 15 m
-        ST_Buffer(
-          --snap tram_stop on highway
-          ST_ClosestPoint(
-            ST_Transform(h.geog::geometry, 25833),
-            ST_Transform(p.geog::geometry, 25833)
-          )
-          , 15
-        )
-      )
-      , CASE WHEN h.oneway THEN h.parking_lane_right_offset ELSE h.parking_lane_left_offset END
-    )
-    , 4326
-  ) geom
-FROM
-  pt_stops p
-  JOIN LATERAL (
-    SELECT
-      h.*
-    FROM
-      highways h
-    WHERE
-      ST_Intersects(h.geog_buffer_left, p.geog)
-    ORDER BY
-      p.geog <-> h.geog
-    LIMIT 1
-  ) AS h ON true
-WHERE
-  p.geog && h.geog_buffer_left
-  AND p.railway = 'tram_stop'
-;
---TODO dont do this
-DELETE FROM pt_tram WHERE ST_GeometryType(geom) = 'ST_MultiLineString';
-
-ALTER TABLE pt_tram ADD COLUMN IF NOT EXISTS geog geography(LineString, 4326);
-UPDATE pt_tram SET geog = geom::geography;
-
-DROP INDEX IF EXISTS pt_tram_geom_idx;
-CREATE INDEX pt_tram_geom_idx ON public.pt_tram USING gist (geom);
-DROP INDEX IF EXISTS pt_tram_geog_idx;
-CREATE INDEX pt_tram_geog_idx ON public.pt_tram USING gist (geog);
-
-DROP TABLE IF EXISTS buffer_pt_tram;
-CREATE TABLE buffer_pt_tram AS
-SELECT
-  p.id,
-  (ST_Union(ST_Buffer(b.geog, 1, 'endcap=flat')::geometry))::geography geog
-FROM
-  parking_lanes p JOIN pt_tram b ON st_intersects(b.geog, p.geog)
-WHERE
-  p.parking NOT IN ('street_side')
-GROUP BY
-  p.id
-;
-DROP INDEX IF EXISTS buffer_pt_tram_geog_idx;
-CREATE INDEX buffer_pt_tram_geog_idx ON buffer_pt_tram USING gist (geog);
-
 
 DROP SEQUENCE IF EXISTS parking_lanes_id;
 CREATE SEQUENCE parking_lanes_id;
@@ -856,11 +602,11 @@ FROM
     FROM
       highways h
     WHERE
-      h.geog_shorten_buffer_right && p.geog
-      OR h.geog_shorten_buffer_left && p.geog
+      h.geog_buffer_right && p.geog
+      OR h.geog_buffer_left && p.geog
     ORDER BY
       --order by biggest intersection area
-      ST_Area(ST_Intersection(h.geog_shorten_buffer_right, p.geog)) + ST_Area(ST_Intersection(h.geog_shorten_buffer_left, p.geog)) DESC,
+      ST_Area(ST_Intersection(h.geog_buffer_right, p.geog)) + ST_Area(ST_Intersection(h.geog_buffer_left, p.geog)) DESC,
       --afterwards by smallest distance
       p.geog <-> h.geog
     LIMIT 1
@@ -869,10 +615,241 @@ FROM
 DROP INDEX IF EXISTS parking_lanes_geog_idx;
 CREATE INDEX parking_lanes_geog_idx ON parking_lanes USING gist (geog);
 
+DROP SEQUENCE IF EXISTS pt_bus_id;
+CREATE SEQUENCE pt_bus_id;
+
+DROP TABLE IF EXISTS pt_bus;
+CREATE TABLE pt_bus AS
+SELECT
+  nextval('pt_bus_id') id,
+  p.node_id,
+  p.id pt_id,
+  p.name,
+  'right' side,
+  ST_Transform(
+    ST_OffsetCurve(
+      --get highway intersection with buffered bus_stop
+      ST_Intersection(
+        ST_Transform((h.geog)::geometry, 25833),
+        --buffer bus_stop with 15 m
+        ST_Buffer(
+          --snap bus_stop on highway
+          ST_ClosestPoint(
+            ST_Transform(h.geog::geometry, 25833),
+            ST_Transform(p.geog::geometry, 25833)
+          )
+          , 15
+        )
+      )
+      , h.parking_lane_right_offset
+    )
+    , 4326
+  ) geom
+FROM
+  pt_stops p
+  JOIN LATERAL (
+    SELECT
+      h.*
+    FROM
+      highways h
+    WHERE
+      ST_Intersects(h.geog_buffer_right, p.geog)
+    ORDER BY
+      p.geog <-> h.geog
+    LIMIT 1
+  ) AS h ON true
+WHERE
+  p.geog && h.geog_buffer_right
+  AND p.highway = 'bus_stop'
+UNION ALL
+SELECT
+  nextval('pt_bus_id') id,
+  p.node_id,
+  p.id pt_id,
+  p.name,
+  'left' side,
+  ST_Transform(
+    ST_OffsetCurve(
+      --get highway intersection with buffered bus_stop
+      ST_Intersection(
+        ST_Transform((h.geog)::geometry, 25833),
+        --buffer bus_stop with 15 m
+        ST_Buffer(
+          --snap bus_stop on highway
+          ST_ClosestPoint(
+            ST_Transform(h.geog::geometry, 25833),
+            ST_Transform(p.geog::geometry, 25833)
+          )
+          , 15
+        )
+      )
+      , h.parking_lane_left_offset
+    )
+    , 4326
+  ) geom
+FROM
+  pt_stops p
+  JOIN LATERAL (
+    SELECT
+      h.*
+    FROM
+      highways h
+    WHERE
+      ST_Intersects(h.geog_buffer_left, p.geog)
+    ORDER BY
+      p.geog <-> h.geog
+    LIMIT 1
+  ) AS h ON true
+WHERE
+  p.geog && h.geog_buffer_left
+  AND p.highway = 'bus_stop'
+;
+--TODO dont do this
+DELETE FROM pt_bus WHERE ST_GeometryType(geom) = 'ST_MultiLineString';
+
+ALTER TABLE pt_bus ADD COLUMN IF NOT EXISTS geog geography(LineString, 4326);
+UPDATE pt_bus SET geog = geom::geography;
+
+DROP INDEX IF EXISTS pt_bus_geom_idx;
+CREATE INDEX pt_bus_geom_idx ON public.pt_bus USING gist (geom);
+DROP INDEX IF EXISTS pt_bus_geog_idx;
+CREATE INDEX pt_bus_geog_idx ON public.pt_bus USING gist (geog);
+
+
+DROP TABLE IF EXISTS buffer_pt_bus;
+CREATE TABLE buffer_pt_bus AS
+SELECT
+  p.id,
+  (ST_Union(ST_Buffer(b.geog, 1, 'endcap=flat')::geometry))::geography geog
+FROM
+  parking_lanes p JOIN pt_bus b ON st_intersects(b.geog, p.geog)
+WHERE
+  p.parking NOT IN ('street_side')
+GROUP BY
+  p.id
+;
+DROP INDEX IF EXISTS buffer_pt_bus_geog_idx;
+CREATE INDEX buffer_pt_bus_geog_idx ON buffer_pt_bus USING gist (geog);
+
+DROP SEQUENCE IF EXISTS pt_tram_id;
+CREATE SEQUENCE pt_tram_id;
+
+DROP TABLE IF EXISTS pt_tram;
+CREATE TABLE pt_tram AS
+SELECT
+  nextval('pt_tram_id') id,
+  p.node_id,
+  p.id pt_tram_id,
+  p.name,
+  'right' side,
+  ST_Transform(
+    ST_OffsetCurve(
+      --get highway intersection with buffered tram_stop
+      ST_Intersection(
+        ST_Transform((h.geog)::geometry, 25833),
+        --buffer tram_stop with 15 m
+        ST_Buffer(
+          --snap tram_stop on highway
+          ST_ClosestPoint(
+            ST_Transform(h.geog::geometry, 25833),
+            ST_Transform(p.geog::geometry, 25833)
+          )
+          , 15
+        )
+      )
+      , h.parking_lane_right_offset
+    )
+    , 4326
+  ) geom
+FROM
+  pt_stops p
+  JOIN LATERAL (
+    SELECT
+      h.*
+    FROM
+      highways h
+    WHERE
+      ST_Intersects(h.geog_buffer_right, p.geog)
+    ORDER BY
+      p.geog <-> h.geog
+    LIMIT 1
+  ) AS h ON true
+WHERE
+  p.geog && h.geog_buffer_right
+  AND p.railway = 'tram_stop'
+UNION ALL
+SELECT
+  nextval('pt_tram_id') id,
+  p.node_id,
+  p.id pt_tram_id,
+  p.name,
+  'left' side,
+
+  ST_Transform(
+    ST_OffsetCurve(
+      --get highway intersection with buffered tram_stop
+      ST_Intersection(
+        ST_Transform((h.geog)::geometry, 25833),
+        --buffer tram_stop with 15 m
+        ST_Buffer(
+          --snap tram_stop on highway
+          ST_ClosestPoint(
+            ST_Transform(h.geog::geometry, 25833),
+            ST_Transform(p.geog::geometry, 25833)
+          )
+          , 15
+        )
+      )
+      , CASE WHEN h.oneway THEN h.parking_lane_right_offset ELSE h.parking_lane_left_offset END
+    )
+    , 4326
+  ) geom
+FROM
+  pt_stops p
+  JOIN LATERAL (
+    SELECT
+      h.*
+    FROM
+      highways h
+    WHERE
+      ST_Intersects(h.geog_buffer_left, p.geog)
+    ORDER BY
+      p.geog <-> h.geog
+    LIMIT 1
+  ) AS h ON true
+WHERE
+  p.geog && h.geog_buffer_left
+  AND p.railway = 'tram_stop'
+;
+--TODO dont do this
+DELETE FROM pt_tram WHERE ST_GeometryType(geom) = 'ST_MultiLineString';
+
+ALTER TABLE pt_tram ADD COLUMN IF NOT EXISTS geog geography(LineString, 4326);
+UPDATE pt_tram SET geog = geom::geography;
+
+DROP INDEX IF EXISTS pt_tram_geom_idx;
+CREATE INDEX pt_tram_geom_idx ON public.pt_tram USING gist (geom);
+DROP INDEX IF EXISTS pt_tram_geog_idx;
+CREATE INDEX pt_tram_geog_idx ON public.pt_tram USING gist (geog);
+
+DROP TABLE IF EXISTS buffer_pt_tram;
+CREATE TABLE buffer_pt_tram AS
+SELECT
+  p.id,
+  (ST_Union(ST_Buffer(b.geog, 1, 'endcap=flat')::geometry))::geography geog
+FROM
+  parking_lanes p JOIN pt_tram b ON st_intersects(b.geog, p.geog)
+WHERE
+  p.parking NOT IN ('street_side')
+GROUP BY
+  p.id
+;
+DROP INDEX IF EXISTS buffer_pt_tram_geog_idx;
+CREATE INDEX buffer_pt_tram_geog_idx ON buffer_pt_tram USING gist (geog);
+
 
 DROP SEQUENCE IF EXISTS ped_crossings_id;
 CREATE SEQUENCE ped_crossings_id;
-
 
 DROP TABLE IF EXISTS ped_crossings;
 CREATE TABLE ped_crossings AS
@@ -953,16 +930,6 @@ SELECT DISTINCT ON (p.side, c.id)
         --ELSE ST_Buffer(c.geog, 1)
       END
   END geog_offset_buffer,
---   CASE
---     WHEN p.side IN ('right') THEN ST_Buffer(p.geog, COALESCE(p.offset, 4), 'side=left endcap=flat')
---     WHEN p.side IN ('left') THEN ST_Buffer(p.geog, COALESCE(p.offset, 4), 'side=right endcap=flat')
---   END  pl_buffer,
---   CASE
---     WHEN p.side IN ('left') THEN ST_Intersects(ST_Buffer(p.geog, COALESCE(p.offset, 4), 'side=left endcap=flat'), c.geog)
---     WHEN p.side IN ('right') THEN ST_Intersects(ST_Buffer(p.geog, COALESCE(p.offset, 4), 'side=right endcap=flat'), c.geog)
---   END thisone,
---   p.geog <-> (ST_Transform(c.geom, 4326))::geography dist_p_c,
---   p.path,
   c.geog geom_crossing
 FROM
   crossings c
@@ -1013,7 +980,6 @@ FROM
 ;
 DROP INDEX IF EXISTS buffer_crossing_geog_idx;
 CREATE INDEX buffer_crossing_geog_idx ON buffer_crossing USING gist (geog);
-
 
 DROP TABLE IF EXISTS ssr;
 CREATE TABLE ssr AS
@@ -1111,7 +1077,6 @@ CREATE INDEX kerb_intersection_points_geog_idx ON kerb_intersection_points USING
 DROP INDEX IF EXISTS kerb_intersection_points_geog_buff_idx;
 CREATE INDEX kerb_intersection_points_geog_buff_idx ON kerb_intersection_points USING gist (geog_buff);
 
-
 DROP TABLE IF EXISTS buffer_driveways;
 CREATE TABLE buffer_driveways AS
 SELECT
@@ -1125,7 +1090,6 @@ GROUP BY
 DROP INDEX IF EXISTS buffer_driveways_geog_idx;
 CREATE INDEX buffer_driveways_geog_idx ON buffer_driveways USING gist (geog);
 
-
 DROP TABLE IF EXISTS buffer_pedestrian_crossings;
 CREATE TABLE buffer_pedestrian_crossings AS
 SELECT
@@ -1138,7 +1102,6 @@ GROUP BY
 ;
 DROP INDEX IF EXISTS buffer_pedestrian_crossings_geog_idx;
 CREATE INDEX buffer_pedestrian_crossings_geog_idx ON buffer_pedestrian_crossings USING gist (geog);
-
 
 DROP TABLE IF EXISTS buffer_kerb_intersections;
 CREATE TABLE buffer_kerb_intersections AS
@@ -1154,7 +1117,6 @@ GROUP BY
 ;
 DROP INDEX IF EXISTS buffer_kerb_intersections_geog_idx;
 CREATE INDEX buffer_kerb_intersections_geog_idx ON buffer_kerb_intersections USING gist (geog);
-
 
 DROP TABLE IF EXISTS buffer_highways;
 CREATE TABLE buffer_highways AS
@@ -1181,7 +1143,6 @@ GROUP BY
 ;
 DROP INDEX IF EXISTS buffer_ramps_geog_idx;
 CREATE INDEX buffer_ramps_geog_idx ON buffer_ramps USING gist (geog);
-
 
 
 DROP TABLE IF EXISTS pl_dev;
@@ -1236,7 +1197,9 @@ SELECT
   c.geog ped_crossing_geog,
   k.geog kerbs_geog,
   hb.geog highways_buffer_geog,
-  r.geog ramps_geog
+  r.geog ramps_geog,
+  b.geog bus_geog,
+  t.geog tram_geog
 FROM
   parking_lanes p
   LEFT JOIN buffer_driveways d ON p.id = d.id
@@ -1247,7 +1210,6 @@ FROM
   LEFT JOIN buffer_pt_tram t ON p.id = t.id
   LEFT JOIN buffer_highways hb ON p.id = hb.id
 ;
-
 
 
 DROP TABLE IF EXISTS pl_dev_geog;
@@ -1321,7 +1283,6 @@ FROM
   dv
 ;
 
-
 DROP TABLE IF EXISTS parking_segments;
 CREATE TABLE parking_segments AS
 SELECT
@@ -1359,7 +1320,6 @@ CREATE INDEX parking_segments_geom_idx ON parking_segments USING gist (geom);
 DROP INDEX IF EXISTS parking_segments_geog_idx;
 CREATE INDEX parking_segments_geog_idx ON parking_segments USING gist (geog);
 
-
 DROP TABLE IF EXISTS parking_summary;
 CREATE TABLE parking_summary AS
 SELECT
@@ -1380,7 +1340,6 @@ DROP INDEX IF EXISTS parking_summary_geom_idx;
 CREATE INDEX parking_summary_geom_idx ON parking_summary USING gist (geom);
 DROP INDEX IF EXISTS parking_summary_geog_idx;
 CREATE INDEX parking_summary_geog_idx ON parking_summary USING gist (geog);
-
 
 DROP TABLE IF EXISTS boundaries_stats;
 CREATE TABLE boundaries_stats AS

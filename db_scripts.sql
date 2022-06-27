@@ -18,6 +18,20 @@ CREATE OR REPLACE FUNCTION ST_Splap(geom1 geometry, geom2 geometry, double preci
 --   RETURNS text LANGUAGE sql STABLE PARALLEL RESTRICTED AS
 -- 'SELECT val FROM const WHERE const_id = $1';
 
+-- insert highway=service into highways table when there are parking information
+INSERT INTO highways
+  (way_id, type, geom, surface, name, oneway, service, dual_carriageway, lanes, width, parking, parking_lane_left, parking_lane_right, parking_lane_width_proc, parking_lane_width_effective, parking_lane_left_position, parking_lane_right_position, parking_lane_left_width, parking_lane_right_width, parking_lane_left_width_carriageway, parking_lane_right_width_carriageway, parking_lane_left_offset, parking_lane_right_offset, parking_condition_left, parking_condition_left_other, parking_condition_right, parking_condition_right_other, parking_condition_left_other_time, parking_condition_right_other_time, parking_condition_left_default, parking_condition_right_default, parking_condition_left_time_interval, parking_condition_right_time_interval, parking_condition_left_maxstay, parking_condition_right_maxstay, parking_lane_left_capacity, parking_lane_right_capacity, parking_lane_left_source_capacity, parking_lane_right_source_capacity)
+SELECT
+  way_id, type, geom, surface, name, oneway, service, dual_carriageway, lanes, width, parking, parking_lane_left, parking_lane_right, parking_lane_width_proc, parking_lane_width_effective, parking_lane_left_position, parking_lane_right_position, parking_lane_left_width, parking_lane_right_width, parking_lane_left_width_carriageway, parking_lane_right_width_carriageway, parking_lane_left_offset, parking_lane_right_offset, parking_condition_left, parking_condition_left_other, parking_condition_right, parking_condition_right_other, parking_condition_left_other_time, parking_condition_right_other_time, parking_condition_left_default, parking_condition_right_default, parking_condition_left_time_interval, parking_condition_right_time_interval, parking_condition_left_maxstay, parking_condition_right_maxstay, parking_lane_left_capacity, parking_lane_right_capacity, parking_lane_left_source_capacity, parking_lane_right_source_capacity
+FROM
+  service
+WHERE
+  parking IN ('lane', 'street_side')
+  AND service IS DISTINCT FROM 'parking_aisle'
+  AND (parking_lane_left IN ('diagonal', 'marked', 'parallel', 'perpendicular', 'separate', 'yes')
+  OR parking_lane_right IN ('diagonal', 'marked', 'parallel', 'perpendicular', 'separate', 'yes'))
+;
+
 --transform to local SRS , we can use meters instead of degree for calculations
 --TODO check if all ST_* functions used are fine with geography type -> change to geography type
 ALTER TABLE highways ADD COLUMN IF NOT EXISTS geog geography(LineString, 4326);
@@ -91,14 +105,6 @@ CREATE INDEX ramps_geom_idx ON public.ramps USING gist (geom);
 DROP INDEX IF EXISTS ramps_geog_idx;
 CREATE INDEX ramps_geog_idx ON public.ramps USING gist (geog);
 
-ALTER TABLE pt_platform ADD COLUMN IF NOT EXISTS geog geography(LineString, 4326);
-UPDATE pt_platform SET geog = geom::geography;
-ALTER TABLE pt_platform ALTER COLUMN geom TYPE geometry(LineString, 25833) USING ST_Transform(geom, 25833);
-DROP INDEX IF EXISTS pt_platform_geom_idx;
-CREATE INDEX pt_platform_geom_idx ON public.pt_platform USING gist (geom);
-DROP INDEX IF EXISTS pt_platform_geog_idx;
-CREATE INDEX pt_platform_geog_idx ON public.pt_platform USING gist (geog);
-
 DROP TABLE IF EXISTS highway_union;
 CREATE TABLE highway_union AS
 WITH hw_union AS (
@@ -121,6 +127,8 @@ SELECT
 FROM
   hw_union h
 ;
+ALTER TABLE highway_union ADD COLUMN IF NOT EXISTS geog_buffer geography;
+UPDATE highway_union SET geog_buffer = ST_Buffer(geog, 1);
 ALTER TABLE highway_union ADD COLUMN IF NOT EXISTS geog_buffer_left geography;
 UPDATE highway_union SET geog_buffer_left = ST_Buffer(geog, 8, 'side=left');
 ALTER TABLE highway_union ADD COLUMN IF NOT EXISTS geog_buffer_right geography;
@@ -128,6 +136,8 @@ UPDATE highway_union SET geog_buffer_right = ST_Buffer(geog, 8, 'side=right');
 DROP INDEX IF EXISTS highway_union_geog_idx;
 CREATE INDEX highway_union_geog_idx ON highway_union USING gist (geog);
 DROP INDEX IF EXISTS highway_union_geog_buffer_left_idx;
+CREATE INDEX highway_union_geog_buffer_idx ON highway_union USING gist (geog_buffer);
+DROP INDEX IF EXISTS highway_union_geog_buffer_idx;
 CREATE INDEX highway_union_geog_buffer_left_idx ON highway_union USING gist (geog_buffer_left);
 DROP INDEX IF EXISTS highway_union_geog_buffer_right_idx;
 CREATE INDEX highway_union_geog_buffer_right_idx ON highway_union USING gist (geog_buffer_right);
@@ -1139,9 +1149,10 @@ DROP TABLE IF EXISTS buffer_highways;
 CREATE TABLE buffer_highways AS
 SELECT
   p.id,
-  (ST_Union(ST_Buffer(h.geog, 1)::geometry))::geography geog
+  ST_Transform((ST_Union(h.geog_buffer::geometry)),4326)::geography geog
 FROM
-  highways h JOIN parking_lanes p ON st_intersects(p.geog, st_buffer(h.geog, 1))
+  highway_union h JOIN parking_lanes p ON st_intersects(p.geog, h.geog_buffer)
+WHERE p.geog && h.geog_buffer
 GROUP BY
   p.id
 ;

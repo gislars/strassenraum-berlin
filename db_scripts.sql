@@ -105,6 +105,18 @@ CREATE INDEX ramps_geom_idx ON public.ramps USING gist (geom);
 DROP INDEX IF EXISTS ramps_geog_idx;
 CREATE INDEX ramps_geog_idx ON public.ramps USING gist (geog);
 
+ALTER TABLE bike_parking ADD COLUMN IF NOT EXISTS geog geography(Point, 4326);
+UPDATE bike_parking SET geog = geom::geography;
+ALTER TABLE bike_parking ADD COLUMN IF NOT EXISTS geog_buffer geography;
+UPDATE bike_parking SET geog_buffer = ST_Buffer(geog, 1);
+ALTER TABLE bike_parking ALTER COLUMN geom TYPE geometry(Point, 25833) USING ST_Transform(geom, 25833);
+DROP INDEX IF EXISTS bike_parking_geog_buffer_idx;
+CREATE INDEX bike_parking_geog_buffer_idx ON public.bike_parking USING gist (geog_buffer);
+DROP INDEX IF EXISTS bike_parking_geom_idx;
+CREATE INDEX bike_parking_geom_idx ON public.bike_parking USING gist (geom);
+DROP INDEX IF EXISTS bike_parking_geog_idx;
+CREATE INDEX bike_parking_geog_idx ON public.bike_parking USING gist (geog);
+
 DROP TABLE IF EXISTS highway_union;
 CREATE TABLE highway_union AS
 WITH hw_union AS (
@@ -1173,6 +1185,18 @@ GROUP BY
 DROP INDEX IF EXISTS buffer_ramps_geog_idx;
 CREATE INDEX buffer_ramps_geog_idx ON buffer_ramps USING gist (geog);
 
+DROP TABLE IF EXISTS buffer_bike_parking;
+CREATE TABLE buffer_bike_parking AS
+SELECT
+  p.id,
+  (ST_Union(b.geog_buffer::geometry))::geography geog
+FROM
+  parking_lanes p JOIN bike_parking b ON st_intersects(b.geog_buffer, p.geog)
+GROUP BY
+  p.id
+;
+DROP INDEX IF EXISTS buffer_bike_parking_geog_idx;
+CREATE INDEX buffer_bike_parking_geog_idx ON buffer_bike_parking USING gist (geog);
 
 DROP TABLE IF EXISTS pl_dev;
 CREATE TABLE pl_dev AS
@@ -1207,7 +1231,10 @@ SELECT
           st_difference(
             st_difference(
               st_difference(
-                p.geog_shorten::geometry,
+                st_difference(
+                  p.geog_shorten::geometry,
+                  ST_SetSRID(COALESCE(bc.geog, 'GEOMETRYCOLLECTION EMPTY'::geography), 4326)::geometry
+                ),
                 ST_SetSRID(COALESCE(t.geog, 'GEOMETRYCOLLECTION EMPTY'::geography), 4326)::geometry
               ),
               ST_SetSRID(COALESCE(b.geog, 'GEOMETRYCOLLECTION EMPTY'::geography), 4326)::geometry
@@ -1228,7 +1255,8 @@ SELECT
   hb.geog highways_buffer_geog,
   r.geog ramps_geog,
   b.geog bus_geog,
-  t.geog tram_geog
+  t.geog tram_geog,
+  bc.geog bike_geog
 FROM
   parking_lanes p
   LEFT JOIN buffer_driveways d ON p.id = d.id
@@ -1238,6 +1266,7 @@ FROM
   LEFT JOIN buffer_pt_bus b ON p.id = b.id
   LEFT JOIN buffer_pt_tram t ON p.id = t.id
   LEFT JOIN buffer_highways hb ON p.id = hb.id
+  LEFT JOIN buffer_bike_parking bc ON p.id = bc.id
 ;
 
 

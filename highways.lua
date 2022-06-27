@@ -156,6 +156,16 @@ tables.ramps = osm2pgsql.define_node_table('ramps', {
     { column = 'geom', type = 'point' , projection = srid},
 })
 
+tables.bike_parking = osm2pgsql.define_node_table('bike_parking', {
+    { column = 'id', sql_type = 'serial', create_only = true },
+    { column = 'amenity', type = 'text' },
+    { column = 'access', type = 'text' },
+    { column = 'capacity', sql_type = 'numeric' },
+    { column = 'parking', type = 'text' },
+    { column = 'parking_position', type = 'text' },
+    { column = 'geom', type = 'point' , projection = srid},
+})
+
 -- tables.hydrant = osm2pgsql.define_node_table('hydrant', {
 --     { column = 'id', sql_type = 'serial', create_only = true },
 --     { column = 'emergency', type = 'text' },
@@ -239,48 +249,6 @@ for _, k in ipairs(crossing_list) do
     crossing_types[k] = 1
 end
 
--- list of public transport tags
-local pt_list = {'platform'}
-
--- Prepare table 'pt' for quick checking of service types
-local pt_types = {}
-for _, k in ipairs(pt_list) do
-    pt_types[k] = 1
-end
-
-
--- list of attributes kept for the street layer
--- Attention: Certain width specifications are also processed (fillBaseAttributes()), but they should not be specified here.
--- 'parking:lane:left/right:position' are new attributes for collecting the parking lane position.
--- 'error_output' is a new attribute to collect errors and inconsistencies
-local street_key_list = {
-  'highway',
-  'name',
-  'width_proc',
-  'width_proc:effective',
-  'surface',
-  'parking:lane:left',
-  'parking:lane:right',
-  'parking:lane:left:position',
-  'parking:lane:right:position',
-  'parking:lane:left:width',
-  'parking:lane:right:width',
-  'parking:lane:left:width:carriageway',
-  'parking:lane:right:width:carriageway',
-  'parking:lane:left:offset',
-  'parking:lane:right:offset',
-  'error_output'
-}
-
--- attribute keep list for parking lane layers (parking:lane:* and parking:condition:* are also stored)
--- Attention: In prepareLayers(), specifications are prefixed with 'highway:' to clarify the attribute as a road property.
-local parking_key_list = {
-  'highway',
-  'name',
-  'width_proc',
-  'width_proc:effective',
-  'error_output'
-}
 
 local parking_orientation_keys = {
   'parking:lane:left:parallel',
@@ -320,6 +288,22 @@ local parking_keys = {
 local rev_parking = {}
 for _, k in ipairs(parking_keys) do
     rev_parking[k] = 1
+end
+
+
+local bicycle_parking_position_keys = {
+  'driveway',
+  'kerb_extension',
+  'lane',
+  'parking_lane',
+  'service_way',
+  'street_side',
+  'traffic_island'
+}
+
+local rev_bicycle_parking_position = {}
+for _, k in ipairs(bicycle_parking_position_keys) do
+    rev_bicycle_parking_position[k] = 1
 end
 
 local position_keys = {
@@ -991,6 +975,21 @@ function osm2pgsql.process_node(object)
           kerb = object.tags["kerb"],
         }
     end
+
+    -- process parking objects and push them to db table
+    local parking_amenity = object.tags["amenity"]
+    if parking_amenity == "bicycle_parking" and rev_bicycle_parking_position[object.tags["bicycle_parking:position"]] then
+        tables.bike_parking:add_row({
+          amenity = parking_amenity,
+          access = object.tags["access"],
+          capacity = parse_units(object.tags["capacity"]),
+          parking = object.tags["bicycle_parking"],
+          parking_position = object.tags["bicycle_parking:position"]
+        })
+        return
+    end
+
+
 end
 
 

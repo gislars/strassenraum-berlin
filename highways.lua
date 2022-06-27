@@ -457,7 +457,7 @@ end
 
 function osm2pgsql.process_way(object)
 
-    if object.tags["level"] ~= nil or object.tags["layer"] ~= nil then
+    if object.tags["level"] ~= nil then
         return
     end
 

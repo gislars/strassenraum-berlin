@@ -136,17 +136,17 @@ DROP TABLE IF EXISTS highway_crossings;
 CREATE TABLE highway_crossings AS
 SELECT
   row_number() over() id,
-   count(DISTINCT h1.id) anzahl,
-   ST_Intersection(h1.geog, h2.geog) geog,
-   ST_Buffer(ST_Intersection(h1.geog, h2.geog), 5) geog_buffer,
-   ST_Buffer(ST_Intersection(h1.geog, h2.geog), 10) geog_buffer10
+  count(DISTINCT h1.id) anzahl,
+  ST_Intersection(h1.geog, h2.geog) geog,
+  ST_Buffer(ST_Intersection(h1.geog, h2.geog), 5) geog_buffer,
+  ST_Buffer(ST_Intersection(h1.geog, h2.geog), 10) geog_buffer10
 FROM
   highway_union h1
   JOIN highway_union h2 ON ST_Intersects(h1.geog, h2.geog)
-  and h1.id != h2.id
+  and h1.id <> h2.id
   and h1.highway_name IS DISTINCT FROM h2.highway_name
 GROUP BY
-   ST_Intersection(h1.geog, h2.geog)
+  ST_Intersection(h1.geog, h2.geog)
 ;
 DROP INDEX IF EXISTS highway_crossings_geog_buffer_idx;
 CREATE INDEX highway_crossings_geog_buffer_idx ON highway_crossings USING gist (geog_buffer);
@@ -199,15 +199,15 @@ DROP SEQUENCE IF EXISTS highway_segments_id;
 CREATE SEQUENCE highway_segments_id;
 
 DROP TABLE IF EXISTS highway_segments;
-CREATE TABLE highway_segments as
+CREATE TABLE highway_segments AS
 WITH crossing_intersecting_highways AS(
    SELECT
      h.id AS lines_id,
-     h.highway_name as highway_name,
+     h.highway_name AS highway_name,
      h.geog AS line_geog,
      (ST_Union(c.geog::geometry))::geography AS blade
    FROM highway_union h, highway_crossings c
-    WHERE h.geog && c.geog_buffer
+   WHERE h.geog && c.geog_buffer
    GROUP BY h.id, h.highway_name, h.geog
 )
 SELECT
@@ -351,6 +351,7 @@ CREATE INDEX pp_points_geom_idx ON pp_points USING gist (geom);
 DROP INDEX IF EXISTS pp_points_geog_idx;
 CREATE INDEX pp_points_geog_idx ON pp_points USING gist (geog);
 
+
 DROP SEQUENCE IF EXISTS pl_separated_id;
 CREATE SEQUENCE pl_separated_id;
 
@@ -366,7 +367,8 @@ SELECT
   p.pp_id,
   h.id highway_union_id,
   ARRAY_AGG(DISTINCT h.highway_name) highway_name,
-  (MIN(p.distance) * -1) min_distance,
+  (MIN(ABS(p.distance))) min_distance,
+  (MAX(ABS(p.distance))) max_distance,
   ST_Transform(
     ST_MakeLine(
       ST_ClosestPoint(
@@ -412,7 +414,8 @@ SELECT
   p.pp_id,
   h.id highway_union_id,
   ARRAY_AGG(DISTINCT h.highway_name) highway_name,
-  MIN(p.distance) min_distance,
+  (MIN(ABS(p.distance))) min_distance,
+  (MAX(ABS(p.distance))) max_distance,
   ST_Transform(
     ST_MakeLine(
       ST_ClosestPoint(
@@ -476,6 +479,7 @@ GROUP BY
 DROP INDEX IF EXISTS pl_separated_union_geog_idx;
 CREATE INDEX pl_separated_union_geog_idx ON pl_separated_union USING gist (geog);
 
+
 DROP SEQUENCE IF EXISTS parking_lanes_id;
 CREATE SEQUENCE parking_lanes_id;
 
@@ -534,12 +538,41 @@ SELECT
         ST_OffsetCurve(
           ST_Transform(
             st_difference(
+              a.geog::geometry,
+              ST_SetSRID(COALESCE(ST_Buffer(s.geog, 0.2), 'GEOMETRYCOLLECTION EMPTY'::geography), 4326)::geometry
+            ),
+            25833
+          ),
+          a.parking_lane_left_offset
+        ), 4326
+      )::geography
+    WHEN v.side IN ('right') THEN
+      ST_Transform(
+        ST_OffsetCurve(
+          ST_Transform(
+            st_difference(
+              a.geog::geometry,
+              ST_SetSRID(COALESCE(ST_Buffer(s.geog, 0.2), 'GEOMETRYCOLLECTION EMPTY'::geography), 4326)::geometry
+            ),
+            25833
+          ),
+          a.parking_lane_right_offset
+        ), 4326
+      )::geography
+  END geog,
+  CASE
+    -- before offsetting we cut out all separated parking lanes
+    WHEN v.side IN ('left') THEN
+      ST_Transform(
+        ST_OffsetCurve(
+          ST_Transform(
+            st_difference(
               a.geog_shorten::geometry,
               ST_SetSRID(COALESCE(ST_Buffer(s.geog, 0.2), 'GEOMETRYCOLLECTION EMPTY'::geography), 4326)::geometry
             ),
             25833
           ),
-          COALESCE(s.min_distance, a.parking_lane_left_offset)
+          a.parking_lane_left_offset
         ), 4326
       )::geography
     WHEN v.side IN ('right') THEN
@@ -552,10 +585,10 @@ SELECT
             ),
             25833
           ),
-          COALESCE(s.min_distance, a.parking_lane_right_offset)
+          a.parking_lane_right_offset
         ), 4326
       )::geography
-  END geog,
+  END geog_shorten,
   a.error_output
 FROM
   (VALUES ('left'), ('right')) AS v(side)
@@ -590,8 +623,9 @@ SELECT
     ELSE 'OSM'
   END "source:capacity",
   NULL width,
-  pl.min_distance "offset", --offset could also be h.parking_lane_*_offset
-  ST_Transform(ST_OffsetCurve(ST_Transform(ST_LineMerge(pl.geog::geometry), 25833), pl.min_distance), 4326)::geography geog,
+  pl.max_distance "offset", --offset could also be h.parking_lane_*_offset
+  ST_Transform(ST_OffsetCurve(ST_Transform(ST_LineMerge(pl.geog::geometry), 25833), pl.max_distance), 4326)::geography geog,
+  'GEOMETRYCOLLECTION EMPTY'::geography geog_shorten,
   NULL error_output
 FROM
   pl_separated pl
@@ -612,8 +646,13 @@ FROM
     LIMIT 1
   ) AS h ON true
 ;
+ALTER TABLE IF EXISTS public.parking_lanes ALTER COLUMN id SET NOT NULL;
+ALTER TABLE IF EXISTS public.parking_lanes ADD PRIMARY KEY (id);
+CREATE UNIQUE INDEX parking_lanes_pk_idx ON public.parking_lanes USING btree (id ASC NULLS LAST);
 DROP INDEX IF EXISTS parking_lanes_geog_idx;
 CREATE INDEX parking_lanes_geog_idx ON parking_lanes USING gist (geog);
+DROP INDEX IF EXISTS parking_lanes_geog_shorten_idx;
+CREATE INDEX parking_lanes_geog_shorten_idx ON parking_lanes USING gist (geog_shorten);
 
 DROP SEQUENCE IF EXISTS pt_bus_id;
 CREATE SEQUENCE pt_bus_id;
@@ -848,41 +887,45 @@ DROP INDEX IF EXISTS buffer_pt_tram_geog_idx;
 CREATE INDEX buffer_pt_tram_geog_idx ON buffer_pt_tram USING gist (geog);
 
 
-DROP SEQUENCE IF EXISTS ped_crossings_id;
-CREATE SEQUENCE ped_crossings_id;
+CREATE TABLE parking_lanes_single AS
+SELECT
+    row_number() over() id,
+    id pl_id,
+    way_id,
+    side,
+    highway,
+    "highway:name",
+    "highway:width_proc",
+    "highway:width_proc:effective",
+    surface,
+    parking,
+    orientation,
+    "position",
+    condition,
+    "condition:other",
+    "condition:other:time",
+    maxstay,
+    capacity_osm,
+    "source:capacity_osm",
+    capacity,
+    "source:capacity",
+    width,
+    "offset",
+    geog geog_multi,
+    error_output,
+    (ST_DUMP(pl.geog::geometry)).path,
+    ((ST_DUMP(pl.geog::geometry)).geom)::geography geog
+FROM
+  parking_lanes pl
+;
+
+DROP INDEX IF EXISTS parking_lanes_single_geog_idx;
+CREATE INDEX parking_lanes_single_geog_idx ON parking_lanes_single USING gist (geog);
+
 
 DROP TABLE IF EXISTS ped_crossings;
 CREATE TABLE ped_crossings AS
-WITH parking_lanes_single AS (
-  SELECT
-      id,
-      way_id,
-      side,
-      highway,
-      "highway:name",
-      "highway:width_proc",
-      "highway:width_proc:effective",
-      surface,
-      parking,
-      orientation,
-      "position",
-      condition,
-      "condition:other",
-      "condition:other:time",
-      maxstay,
-      capacity_osm,
-      "source:capacity_osm",
-      capacity,
-      "source:capacity",
-      width,
-      "offset",
-      geog geog_multi,
-      error_output,
-      (ST_DUMP(pl.geog::geometry)).path,
-      ((ST_DUMP(pl.geog::geometry)).geom)::geography geog
-  FROM
-    parking_lanes pl
-)
+
 SELECT DISTINCT ON (p.side, c.id)
   row_number() over() id,
   c.node_id,
@@ -941,6 +984,7 @@ FROM
       parking_lanes_single p
     WHERE
       p.way_id = h.way_id
+      AND p.geog && h.geog
     ORDER BY
       p.geog <-> c.geog
     LIMIT 2
@@ -954,32 +998,6 @@ WHERE
 DROP INDEX IF EXISTS ped_crossings_geog_offset_buffer_idx;
 CREATE INDEX ped_crossings_geog_offset_buffer_idx ON ped_crossings USING gist (geog_offset_buffer);
 
-DROP TABLE IF EXISTS buffer_crossing;
-CREATE TABLE buffer_crossing AS
-SELECT
-  row_number() over() id,
-  highway,
-  crossing,
-  crossing_ref,
-  kerb,
-  "crossing:buffer_marking",
-  "crossing:kerb_extension",
-  "traffic_signals:direction",
-  "width_proc",
-  "parking:lane:left:width:carriageway",
-  "parking:lane:right:width:carriageway",
-  CASE
-    WHEN highway = 'traffic_signals' AND "traffic_signals:direction" IN ('forward', 'backward') THEN ST_Buffer(geog_offset_buffer, 10)
-    WHEN "crossing:kerb_extension" = 'both' OR "crossing:buffer_marking" = 'both' THEN ST_Buffer(geog_offset_buffer, 3)
-    WHEN crossing = 'zebra' OR crossing_ref = 'zebra' OR crossing = 'traffic_signals' THEN ST_Buffer(geog_offset_buffer, 4.5)
-    WHEN crossing = 'marked' THEN ST_Buffer(geog_offset_buffer, 2)
-    --ELSE ST_Buffer(geom, 20)
-  END geog
-FROM
-  ped_crossings
-;
-DROP INDEX IF EXISTS buffer_crossing_geog_idx;
-CREATE INDEX buffer_crossing_geog_idx ON buffer_crossing USING gist (geog);
 
 DROP TABLE IF EXISTS ssr;
 CREATE TABLE ssr AS
@@ -1043,7 +1061,8 @@ CREATE INDEX driveways_geog_idx ON driveways USING gist (geog);
 DROP TABLE IF EXISTS kerb_intersection_points;
 CREATE TABLE kerb_intersection_points AS
 SELECT
-  a.id,
+  row_number() over() id,
+  a.id pl_id,
   a.side,
   a."highway" AS "type",
   a."highway:name" AS "name",
@@ -1061,21 +1080,19 @@ SELECT
       AND a.parking IS NOT DISTINCT FROM b.parking THEN 'same_street'
     WHEN a."highway" IN ('pedestrian')
       OR b."highway" IN ('pedestrian') THEN 'pedestrian'
-    ELSE 'fine'
+    ELSE 'other'
   END crossing_debug,
-  ST_CollectionExtract(ST_Intersection(a.geog::geometry, b.geog::geometry), 1)::geography geog,
-  ST_Buffer(ST_CollectionExtract(ST_Intersection(a.geog::geometry, b.geog::geometry), 1)::geography, 5) geog_buff
+  ST_CollectionExtract(ST_Intersection(a.geog::geometry, b.geog::geometry), 1)::geography geog
 FROM
   parking_lanes a,
   parking_lanes b
 WHERE
   ST_Intersects(a.geog, b.geog)
-  AND a.id != b.id
+  AND a.id <> b.id
 ;
 DROP INDEX IF EXISTS kerb_intersection_points_geog_idx;
 CREATE INDEX kerb_intersection_points_geog_idx ON kerb_intersection_points USING gist (geog);
-DROP INDEX IF EXISTS kerb_intersection_points_geog_buff_idx;
-CREATE INDEX kerb_intersection_points_geog_buff_idx ON kerb_intersection_points USING gist (geog_buff);
+
 
 DROP TABLE IF EXISTS buffer_driveways;
 CREATE TABLE buffer_driveways AS
@@ -1107,9 +1124,9 @@ DROP TABLE IF EXISTS buffer_kerb_intersections;
 CREATE TABLE buffer_kerb_intersections AS
 SELECT
   p.id,
-  (ST_Union(k.geog_buff::geometry))::geography geog
+  (ST_Union(ST_Buffer(k.geog, 5)::geometry))::geography geog
 FROM
-  kerb_intersection_points k JOIN parking_lanes p ON st_intersects(p.geog, k.geog_buff)
+  kerb_intersection_points k JOIN parking_lanes p ON st_intersects(p.geog, k.geog)
 WHERE
   crossing_debug NOT IN ('same_street')
 GROUP BY
@@ -1178,7 +1195,7 @@ SELECT
           st_difference(
             st_difference(
               st_difference(
-                p.geog::geometry,
+                p.geog_shorten::geometry,
                 ST_SetSRID(COALESCE(t.geog, 'GEOMETRYCOLLECTION EMPTY'::geography), 4326)::geometry
               ),
               ST_SetSRID(COALESCE(b.geog, 'GEOMETRYCOLLECTION EMPTY'::geography), 4326)::geometry
@@ -1253,14 +1270,14 @@ SELECT
     single.capacity_osm capacity_osm,
     single."source:capacity_osm" "source:capacity_osm",
     CASE
-      WHEN side = 'left' AND single.capacity IS NOT NULL AND single.capacity != 0 THEN single.capacity
+      WHEN side = 'left' AND single.capacity IS NOT NULL AND single.capacity <> 0 THEN single.capacity
       WHEN side = 'left' AND single.capacity IS NULL OR single.capacity = 0 THEN
         CASE
           WHEN single.orientation = 'parallel' AND ST_Length(single.simple_geog) > dv.vehicle_length THEN floor((ST_Length(single.simple_geog) + (dv.vehicle_dist_para - dv.vehicle_length)) / dv.vehicle_dist_para)
           WHEN single.orientation = 'diagonal' AND ST_Length(single.simple_geog) > dv.vehicle_diag_width THEN floor((ST_Length(single.simple_geog) + (dv.vehicle_dist_diag - dv.vehicle_diag_width)) / dv.vehicle_dist_diag)
           WHEN single.orientation = 'perpendicular' AND ST_Length(single.simple_geog) > dv.vehicle_width THEN floor((ST_Length(single.simple_geog) + (dv.vehicle_dist_perp - dv.vehicle_width)) / dv.vehicle_dist_perp)
         END
-      WHEN side = 'right' AND single.capacity IS NOT NULL AND single.capacity != 0 THEN single.capacity
+      WHEN side = 'right' AND single.capacity IS NOT NULL AND single.capacity <> 0 THEN single.capacity
       WHEN side = 'right' AND single.capacity IS NULL OR single.capacity = 0 THEN
         CASE
           WHEN single.orientation = 'parallel' AND ST_Length(single.simple_geog) > dv.vehicle_length THEN floor((ST_Length(single.simple_geog) + (dv.vehicle_dist_para - dv.vehicle_length)) / dv.vehicle_dist_para)
@@ -1269,7 +1286,7 @@ SELECT
         END
     END capacity,
     CASE
-      WHEN single."source:capacity" IS NOT NULL AND single.capacity != 0 THEN single."source:capacity"
+      WHEN single."source:capacity" IS NOT NULL AND single.capacity <> 0 THEN single."source:capacity"
       WHEN single."source:capacity" IS NULL OR single.capacity = 0 THEN 'estimated'
     END "source:capacity",
     single.width width,

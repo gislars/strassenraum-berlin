@@ -897,6 +897,7 @@ DROP INDEX IF EXISTS buffer_pt_tram_geog_idx;
 CREATE INDEX buffer_pt_tram_geog_idx ON buffer_pt_tram USING gist (geog);
 
 
+DROP TABLE IF EXISTS parking_lanes_single;
 CREATE TABLE parking_lanes_single AS
 SELECT
     row_number() over() id,

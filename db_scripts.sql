@@ -389,8 +389,8 @@ SELECT
   p.pp_id,
   h.id highway_union_id,
   ARRAY_AGG(DISTINCT h.highway_name) highway_name,
-  (MIN(ABS(p.distance))) min_distance,
-  (MAX(ABS(p.distance))) max_distance,
+  (MIN(p.distance) * -1) min_distance,
+  (MAX(p.distance) * -1) max_distance,
   ST_Transform(
     ST_MakeLine(
       ST_ClosestPoint(
@@ -436,8 +436,8 @@ SELECT
   p.pp_id,
   h.id highway_union_id,
   ARRAY_AGG(DISTINCT h.highway_name) highway_name,
-  (MIN(ABS(p.distance))) min_distance,
-  (MAX(ABS(p.distance))) max_distance,
+  MIN(p.distance) min_distance,
+  MAX(p.distance) max_distance,
   ST_Transform(
     ST_MakeLine(
       ST_ClosestPoint(
@@ -1232,7 +1232,7 @@ SELECT
             st_difference(
               st_difference(
                 st_difference(
-                  p.geog_shorten::geometry,
+                  CASE WHEN p.geog_shorten = 'GEOMETRYCOLLECTION EMPTY'::geography THEN p.geog::geometry ELSE p.geog_shorten::geometry END,
                   ST_SetSRID(COALESCE(bc.geog, 'GEOMETRYCOLLECTION EMPTY'::geography), 4326)::geometry
                 ),
                 ST_SetSRID(COALESCE(t.geog, 'GEOMETRYCOLLECTION EMPTY'::geography), 4326)::geometry

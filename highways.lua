@@ -441,9 +441,6 @@ end
 
 function osm2pgsql.process_way(object)
 
-    if object.tags["level"] ~= nil then
-        return
-    end
 
     -- process public transport objects and push them to db table
     local public_transport = object:grab_tag("public_transport")

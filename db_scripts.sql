@@ -646,7 +646,8 @@ SELECT
   END "source:capacity",
   NULL width,
   pl.max_distance "offset", --offset could also be h.parking_lane_*_offset
-  ST_Transform(ST_OffsetCurve(ST_Transform(ST_LineMerge(pl.geog::geometry), 25833), pl.max_distance), 4326)::geography geog,
+--  ST_Transform(ST_OffsetCurve(ST_Transform(ST_LineMerge(pl.geog::geometry), 25833), pl.max_distance), 4326)::geography geog,
+  ST_Transform(ST_OffsetCurve(ST_Simplify(ST_Transform(ST_LineMerge(pl.geog::geometry), 25833), (ST_Length(ST_Transform(ST_LineMerge(pl.geog::geometry), 25833)) * 0.1)), pl.max_distance), 4326)::geography geog,
   'GEOMETRYCOLLECTION EMPTY'::geography geog_shorten,
   NULL error_output
 FROM
@@ -941,14 +942,12 @@ SELECT
 FROM
   parking_lanes pl
 ;
-
 DROP INDEX IF EXISTS parking_lanes_single_geog_idx;
 CREATE INDEX parking_lanes_single_geog_idx ON parking_lanes_single USING gist (geog);
 
 
 DROP TABLE IF EXISTS ped_crossings;
 CREATE TABLE ped_crossings AS
-
 SELECT DISTINCT ON (p.side, c.id)
   row_number() over() id,
   c.node_id,
@@ -1124,6 +1123,8 @@ SELECT
   (ST_Union(d.geog::geometry))::geography geog
 FROM
   parking_lanes p JOIN driveways d ON st_intersects(d.geog, p.geog)
+WHERE
+  d.type <> 'footway'
 GROUP BY
   p.id
 ;

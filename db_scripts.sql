@@ -256,49 +256,6 @@ CREATE INDEX highway_segments_geog_buffer_right_idx ON public.highway_segments U
 DROP INDEX IF EXISTS highway_segments_geog_buffer_idx;
 CREATE INDEX highway_segments_geog_buffer_idx ON public.highway_segments USING gist (geog_buffer);
 
-DROP SEQUENCE IF EXISTS highway_union_parking_poly_id;
-CREATE SEQUENCE highway_union_parking_poly_id;
-
-DROP TABLE IF EXISTS highway_union_parking_poly;
-CREATE TABLE highway_union_parking_poly AS
-SELECT
-  DISTINCT ON (h.id)
-  nextval('highway_union_parking_poly_id') id,
-  p.id p_id,
-  h.id h_id,
-  h.highway_name highway_name,
-  h.geog_buffer_right,
-  h.geog_buffer_left,
-  ST_Transform(h.geog::geometry, 25833) geom,
-  h.geog geog
-FROM parking_poly p
-JOIN LATERAL (
-  SELECT
-    h.*
-  FROM
-    highway_union h
-  WHERE
-    h.geog_buffer_right && p.geog
-    OR h.geog_buffer_left && p.geog
-  ORDER BY
-    --order by biggest intersection area
-    ST_Area(ST_Intersection(h.geog_buffer_right, p.geog)) + ST_Area(ST_Intersection(h.geog_buffer_left, p.geog)) DESC,
-    --afterwards by smallest distance
-    p.geog <-> h.geog
-  LIMIT 1
-) AS h ON true
-WHERE
-  (p.parking IN ('lane', 'street_side'))
-  AND (p.access NOT IN ('private') OR p.access IS NULL)
-;
-DROP INDEX IF EXISTS highway_union_parking_poly_geom_idx;
-CREATE INDEX highway_union_parking_poly_geom_idx ON highway_union_parking_poly USING gist (geom);
-DROP INDEX IF EXISTS highway_union_parking_poly_geog_idx;
-CREATE INDEX highway_union_parking_poly_geog_idx ON highway_union_parking_poly USING gist (geog);
-DROP INDEX IF EXISTS highway_union_parking_poly_geog_buffer_right_idx;
-CREATE INDEX highway_union_parking_poly_geog_buffer_right_idx ON highway_union_parking_poly USING gist (geog_buffer_right);
-DROP INDEX IF EXISTS highway_union_parking_poly_geog_buffer_left_idx;
-CREATE INDEX highway_union_parking_poly_geog_buffer_left_idx ON highway_union_parking_poly USING gist (geog_buffer_left);
 
 DROP SEQUENCE IF EXISTS pp_points_id;
 CREATE SEQUENCE pp_points_id;
@@ -317,7 +274,7 @@ SELECT
   pp.parking_orientation parking_orientation,
   pp.parking_street_side_of parking_street_side_of,
   pp.parking_street_side_of_name parking_street_side_of_name,
-  hs.highway_name highway_name,
+  hs.name highway_name,
   hs.id highway_id,
   ST_OrientedEnvelope(ST_Transform(pp.geom, 25833)) geom_envelope,
   ST_ConvexHull(pp.geom) geom_convex,
@@ -331,7 +288,7 @@ SELECT
   ST_Area(ST_Intersection(hs.geog_buffer_right, pp.geog)) intersection_aera
 FROM
   parking_poly pp,
-  highway_union_parking_poly hs
+  highways hs
 WHERE
   ST_Intersects(hs.geog_buffer_right, pp.geog)
   AND (pp.parking IN ('lane', 'street_side'))
@@ -348,7 +305,7 @@ SELECT
   pp.parking_orientation parking_orientation,
   pp.parking_street_side_of parking_street_side_of,
   pp.parking_street_side_of_name parking_street_side_of_name,
-  hs.highway_name highway_name,
+  hs.name highway_name,
   hs.id highway_id,
   ST_OrientedEnvelope(ST_Transform(pp.geom, 25833)) geom_envelope,
   ST_ConvexHull(pp.geom) geom_convex,
@@ -362,7 +319,7 @@ SELECT
   ST_Area(ST_Intersection(hs.geog_buffer_left, pp.geog)) intersection_aera
 FROM
   parking_poly pp,
-  highway_union_parking_poly hs
+  highways hs
 WHERE
   ST_Intersects(hs.geog_buffer_left, pp.geog)
   AND (pp.parking IN ('lane', 'street_side'))
@@ -384,11 +341,10 @@ DROP TABLE IF EXISTS pl_separated;
 CREATE TABLE pl_separated AS
 SELECT
   nextval('pl_separated_id') id,
-  h.h_id h_id,
+  h.id h_id,
   p.side,
   p.pp_id,
-  h.id highway_union_id,
-  ARRAY_AGG(DISTINCT h.highway_name) highway_name,
+  ARRAY_AGG(DISTINCT h.name) highway_name,
   (MIN(p.distance) * -1) min_distance,
   (MAX(p.distance) * -1) max_distance,
   ST_Transform(
@@ -410,7 +366,7 @@ FROM
     SELECT
       h.*
     FROM
-      highway_union_parking_poly h
+      highways h
     WHERE
       h.geog_buffer_right && p.geog
     ORDER BY
@@ -422,20 +378,18 @@ FROM
   ) AS h ON true
 WHERE
   p.side = 'right'
-  AND p.highway_name = h.highway_name
+  AND p.highway_name = h.name
 GROUP BY
   p.pp_id,
   p.side,
-  h.h_id,
   h.id
 UNION ALL
 SELECT
   nextval('pl_separated_id') id,
-  h.h_id h_id,
+  h.id h_id,
   p.side,
   p.pp_id,
-  h.id highway_union_id,
-  ARRAY_AGG(DISTINCT h.highway_name) highway_name,
+  ARRAY_AGG(DISTINCT h.name) highway_name,
   MIN(p.distance) min_distance,
   MAX(p.distance) max_distance,
   ST_Transform(
@@ -457,7 +411,7 @@ FROM
     SELECT
       h.*
     FROM
-      highway_union_parking_poly h
+      highways h
     WHERE
       h.geog_buffer_left && p.geog
     ORDER BY
@@ -469,11 +423,10 @@ FROM
   ) AS h ON true
 WHERE
   p.side = 'left'
-  AND p.highway_name = h.highway_name
+  AND p.highway_name = h.name
 GROUP BY
   p.pp_id,
   p.side,
-  h.h_id,
   h.id
 ;
 ALTER TABLE pl_separated ADD COLUMN IF NOT EXISTS geog geography(LineString, 4326);
@@ -1076,6 +1029,9 @@ SELECT
   ST_Buffer(ST_Intersection(s.geog, p.geog), GREATEST((s.parking_lane_width_proc / 2), 2) ) geog
 FROM service s
   JOIN parking_lanes p ON ST_Intersects(s.geog, p.geog)
+WHERE
+  s.geog && p.geog
+  AND s.type IN ('service')
 ;
 DROP INDEX IF EXISTS driveways_geog_idx;
 CREATE INDEX driveways_geog_idx ON driveways USING gist (geog);
@@ -1104,7 +1060,8 @@ SELECT
       OR b."highway" IN ('pedestrian') THEN 'pedestrian'
     ELSE 'other'
   END crossing_debug,
-  ST_CollectionExtract(ST_Intersection(a.geog::geometry, b.geog::geometry), 1)::geography geog
+  ST_CollectionExtract(ST_Intersection(a.geog::geometry, b.geog::geometry), 1)::geography geog,
+  ST_Buffer(ST_CollectionExtract(ST_Intersection(a.geog::geometry, b.geog::geometry), 1)::geography, 3) geog_buffer
 FROM
   parking_lanes a,
   parking_lanes b
@@ -1114,6 +1071,8 @@ WHERE
 ;
 DROP INDEX IF EXISTS kerb_intersection_points_geog_idx;
 CREATE INDEX kerb_intersection_points_geog_idx ON kerb_intersection_points USING gist (geog);
+DROP INDEX IF EXISTS kerb_intersection_points_geog_buffer_idx;
+CREATE INDEX kerb_intersection_points_geog_buffer_idx ON kerb_intersection_points USING gist (geog_buffer);
 
 
 DROP TABLE IF EXISTS buffer_driveways;
@@ -1148,13 +1107,14 @@ DROP TABLE IF EXISTS buffer_kerb_intersections;
 CREATE TABLE buffer_kerb_intersections AS
 SELECT
   p.id,
-  (ST_Union(ST_Buffer(k.geog, 5)::geometry))::geography geog
+  (ST_Union((k.geog_buffer)::geometry))::geography geog
 FROM
-  kerb_intersection_points k JOIN parking_lanes p ON st_intersects(p.geog, k.geog)
+  kerb_intersection_points k JOIN parking_lanes p ON st_intersects(p.geog, k.geog_buffer)
 WHERE
-  crossing_debug NOT IN ('same_street')
+  k.crossing_debug NOT IN ('same_street')
+  AND p.geog && k.geog_buffer
 GROUP BY
- p.id
+  p.id
 ;
 DROP INDEX IF EXISTS buffer_kerb_intersections_geog_idx;
 CREATE INDEX buffer_kerb_intersections_geog_idx ON buffer_kerb_intersections USING gist (geog);

@@ -598,9 +598,8 @@ SELECT
     ELSE 'OSM'
   END "source:capacity",
   NULL width,
-  pl.max_distance "offset", --offset could also be h.parking_lane_*_offset
---  ST_Transform(ST_OffsetCurve(ST_Transform(ST_LineMerge(pl.geog::geometry), 25833), pl.max_distance), 4326)::geography geog,
-  ST_Transform(ST_OffsetCurve(ST_Simplify(ST_Transform(ST_LineMerge(pl.geog::geometry), 25833), (ST_Length(ST_Transform(ST_LineMerge(pl.geog::geometry), 25833)) * 0.1)), pl.max_distance), 4326)::geography geog,
+  pl.min_distance "offset", --offset could also be h.parking_lane_*_offset
+  ST_Transform(ST_OffsetCurve(ST_Simplify(ST_Transform(ST_LineMerge(pl.geog::geometry), 25833), (ST_Length(ST_Transform(ST_LineMerge(pl.geog::geometry), 25833)) * 0.1)), pl.min_distance), 4326)::geography geog,
   'GEOMETRYCOLLECTION EMPTY'::geography geog_shorten,
   NULL error_output
 FROM

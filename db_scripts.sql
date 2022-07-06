@@ -1332,7 +1332,7 @@ SELECT
 FROM pl_dev_geog
 WHERE
   ST_Length(geog) > 1.7
-  AND capacity IS NOT NULL
+  --AND capacity IS NOT NULL
 ;
 DROP INDEX IF EXISTS parking_segments_geom_idx;
 CREATE INDEX parking_segments_geom_idx ON parking_segments USING gist (geom);

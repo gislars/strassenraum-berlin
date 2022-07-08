@@ -1378,6 +1378,7 @@ WHERE
   ST_Length(geog) > 1.7
   --AND capacity IS NOT NULL
 ;
+ALTER TABLE parking_spaces ALTER COLUMN geom TYPE geometry(Multipoint, 4326);
 
 DROP INDEX IF EXISTS parking_spaces_geom_idx;
 CREATE INDEX parking_spaces_geom_idx ON parking_spaces USING gist (geom);

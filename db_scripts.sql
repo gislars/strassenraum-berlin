@@ -1338,6 +1338,45 @@ CREATE INDEX parking_segments_geom_idx ON parking_segments USING gist (geom);
 DROP INDEX IF EXISTS parking_segments_geog_idx;
 CREATE INDEX parking_segments_geog_idx ON parking_segments USING gist (geog);
 
+DROP TABLE IF EXISTS parking_spaces;
+CREATE TABLE parking_spaces AS
+SELECT
+    way_id way_id,
+    id id,
+    side side,
+    highway highway,
+    "highway:name" highway_name,
+    "highway:width_proc" highway_width_proc,
+    "highway:width_proc:effective" highway_width_proc_effective,
+    surface surface,
+    parking parking,
+    orientation orientation,
+    "position" "position",
+    condition condition,
+    "condition:other" condition_other,
+    "condition:other:time" condition_other_time,
+    maxstay maxstay,
+    capacity_osm capacity_osm,
+    "source:capacity_osm" source_capacity_osm,
+    capacity capacity,
+    "source:capacity" source_capacity,
+    width width,
+    "offset" "offset",
+    error_output error_output,
+    CASE
+      WHEN  1 / (capacity +1) BETWEEN 0 AND 1 THEN
+        ST_Multi(ST_LineInterpolatePoints(geog::geometry(LineString, 4326), 1 / (capacity + 1), true))::geometry(Multipoint, 4326)
+      ELSE NULL
+    END geom
+FROM pl_dev_geog
+WHERE
+  ST_Length(geog) > 1.7
+  --AND capacity IS NOT NULL
+;
+
+DROP INDEX IF EXISTS parking_spaces_geom_idx;
+CREATE INDEX parking_spaces_geom_idx ON parking_spaces USING gist (geom);
+
 DROP TABLE IF EXISTS parking_summary;
 CREATE TABLE parking_summary AS
 SELECT

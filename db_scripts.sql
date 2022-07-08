@@ -1369,8 +1369,8 @@ SELECT
       ELSE degrees(ST_Azimuth(ST_Startpoint(ST_Transform(geog::geometry, 25832)), ST_EndPoint(ST_Transform(geog::geometry, 25832))))
     END angle,
     CASE
-      WHEN  1 / (capacity +1) BETWEEN 0 AND 1 THEN
-        ST_Multi(ST_LineInterpolatePoints(geog::geometry(LineString, 4326), 1 / (capacity + 1), true))::geometry(Multipoint, 4326)
+      WHEN  1 / capacity BETWEEN 0 AND 1 THEN
+        ST_Multi(ST_LineInterpolatePoints(geog::geometry(LineString, 4326), 1 / capacity, true))::geometry(Multipoint, 4326)
       ELSE NULL
     END geom
 FROM pl_dev_geog

@@ -105,17 +105,17 @@ CREATE INDEX ramps_geom_idx ON public.ramps USING gist (geom);
 DROP INDEX IF EXISTS ramps_geog_idx;
 CREATE INDEX ramps_geog_idx ON public.ramps USING gist (geog);
 
-ALTER TABLE bike_parking ADD COLUMN IF NOT EXISTS geog geography(Point, 4326);
-UPDATE bike_parking SET geog = geom::geography;
-ALTER TABLE bike_parking ADD COLUMN IF NOT EXISTS geog_buffer geography;
-UPDATE bike_parking SET geog_buffer = ST_Buffer(geog, 1);
-ALTER TABLE bike_parking ALTER COLUMN geom TYPE geometry(Point, 25833) USING ST_Transform(geom, 25833);
-DROP INDEX IF EXISTS bike_parking_geog_buffer_idx;
-CREATE INDEX bike_parking_geog_buffer_idx ON public.bike_parking USING gist (geog_buffer);
-DROP INDEX IF EXISTS bike_parking_geom_idx;
-CREATE INDEX bike_parking_geom_idx ON public.bike_parking USING gist (geom);
-DROP INDEX IF EXISTS bike_parking_geog_idx;
-CREATE INDEX bike_parking_geog_idx ON public.bike_parking USING gist (geog);
+ALTER TABLE amenity_parking_points ADD COLUMN IF NOT EXISTS geog geography(Point, 4326);
+UPDATE amenity_parking_points SET geog = geom::geography;
+ALTER TABLE amenity_parking_points ADD COLUMN IF NOT EXISTS geog_buffer geography;
+UPDATE amenity_parking_points SET geog_buffer = ST_Buffer(geog, 1);
+ALTER TABLE amenity_parking_points ALTER COLUMN geom TYPE geometry(Point, 25833) USING ST_Transform(geom, 25833);
+DROP INDEX IF EXISTS amenity_parking_points_geog_buffer_idx;
+CREATE INDEX amenity_parking_points_geog_buffer_idx ON public.amenity_parking_points USING gist (geog_buffer);
+DROP INDEX IF EXISTS amenity_parking_points_geom_idx;
+CREATE INDEX amenity_parking_points_geom_idx ON public.amenity_parking_points USING gist (geom);
+DROP INDEX IF EXISTS amenity_parking_points_geog_idx;
+CREATE INDEX amenity_parking_points_geog_idx ON public.amenity_parking_points USING gist (geog);
 
 DROP TABLE IF EXISTS highway_union;
 CREATE TABLE highway_union AS
@@ -1145,18 +1145,18 @@ GROUP BY
 DROP INDEX IF EXISTS buffer_ramps_geog_idx;
 CREATE INDEX buffer_ramps_geog_idx ON buffer_ramps USING gist (geog);
 
-DROP TABLE IF EXISTS buffer_bike_parking;
-CREATE TABLE buffer_bike_parking AS
+DROP TABLE IF EXISTS buffer_amenity_parking_points;
+CREATE TABLE buffer_amenity_parking_points AS
 SELECT
   p.id,
   (ST_Union(b.geog_buffer::geometry))::geography geog
 FROM
-  parking_lanes p JOIN bike_parking b ON st_intersects(b.geog_buffer, p.geog)
+  parking_lanes p JOIN amenity_parking_points b ON st_intersects(b.geog_buffer, p.geog)
 GROUP BY
   p.id
 ;
-DROP INDEX IF EXISTS buffer_bike_parking_geog_idx;
-CREATE INDEX buffer_bike_parking_geog_idx ON buffer_bike_parking USING gist (geog);
+DROP INDEX IF EXISTS buffer_amenity_parking_points_geog_idx;
+CREATE INDEX buffer_amenity_parking_points_geog_idx ON buffer_amenity_parking_points USING gist (geog);
 
 DROP TABLE IF EXISTS pl_dev;
 CREATE TABLE pl_dev AS
@@ -1226,7 +1226,7 @@ FROM
   LEFT JOIN buffer_pt_bus b ON p.id = b.id
   LEFT JOIN buffer_pt_tram t ON p.id = t.id
   LEFT JOIN buffer_highways hb ON p.id = hb.id
-  LEFT JOIN buffer_bike_parking bc ON p.id = bc.id
+  LEFT JOIN buffer_amenity_parking_points bc ON p.id = bc.id
 ;
 
 

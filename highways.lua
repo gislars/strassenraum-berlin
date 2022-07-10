@@ -156,13 +156,23 @@ tables.ramps = osm2pgsql.define_node_table('ramps', {
     { column = 'geom', type = 'point' , projection = srid},
 })
 
-tables.bike_parking = osm2pgsql.define_node_table('bike_parking', {
+tables.amenity_parking_points = osm2pgsql.define_node_table('amenity_parking_points', {
     { column = 'id', sql_type = 'serial', create_only = true },
     { column = 'amenity', type = 'text' },
     { column = 'access', type = 'text' },
     { column = 'capacity', sql_type = 'numeric' },
+    { column = 'bicycle', type = 'text' },
+    { column = 'small_electric_vehicle', sql_type = 'text' },
+    { column = 'small_vehicle_parking_position', type = 'text' },
     { column = 'parking', type = 'text' },
     { column = 'parking_position', type = 'text' },
+    { column = 'geom', type = 'point' , projection = srid},
+})
+
+tables.traffic_calming_points = osm2pgsql.define_node_table('traffic_calming_points', {
+    { column = 'id', sql_type = 'serial', create_only = true },
+    { column = 'traffic_calming', type = 'text' },
+    { column = 'priority', type = 'text' },
     { column = 'geom', type = 'point' , projection = srid},
 })
 
@@ -289,7 +299,6 @@ local rev_parking = {}
 for _, k in ipairs(parking_keys) do
     rev_parking[k] = 1
 end
-
 
 local bicycle_parking_position_keys = {
   'driveway',
@@ -973,19 +982,29 @@ function osm2pgsql.process_node(object)
         }
     end
 
+    if object.tags.traffic_calming ~= nil then
+        tables.traffic_calming_points:add_row{
+          traffic_calming = object.tags["traffic_calming"],
+          priority = object.tags["priority"],
+        }
+    end
+
     -- process parking objects and push them to db table
     local parking_amenity = object.tags["amenity"]
-    if parking_amenity == "bicycle_parking" and rev_bicycle_parking_position[object.tags["bicycle_parking:position"]] then
-        tables.bike_parking:add_row({
+    if (parking_amenity == "bicycle_parking" and rev_bicycle_parking_position[object.tags["bicycle_parking:position"]])
+        or parking_amenity == "small_vehicle_parking" then
+        tables.amenity_parking_points:add_row({
           amenity = parking_amenity,
           access = object.tags["access"],
           capacity = parse_units(object.tags["capacity"]),
+          bicycle = object.tags["bicycle"],
+          small_electric_vehicle = object.tags["small_electric_vehicle"],
+          small_vehicle_parking_position = object.tags["small_vehicle_parking:position"],
           parking = object.tags["bicycle_parking"],
           parking_position = object.tags["bicycle_parking:position"]
         })
         return
     end
-
 
 end
 

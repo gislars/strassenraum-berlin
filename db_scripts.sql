@@ -564,7 +564,7 @@ SELECT
         ), 4326
       )::geography
   END geog_shorten,
-  a.error_output
+  (a.error_output#>>'{}')::jsonb error_output
 FROM
   (VALUES ('left'), ('right')) AS v(side)
   CROSS JOIN
@@ -601,7 +601,7 @@ SELECT
   pl.min_distance "offset", --offset could also be h.parking_lane_*_offset
   ST_Transform(ST_OffsetCurve(ST_Simplify(ST_Transform(ST_LineMerge(pl.geog::geometry), 25833), (ST_Length(ST_Transform(ST_LineMerge(pl.geog::geometry), 25833)) * 0.1)), pl.min_distance), 4326)::geography geog,
   'GEOMETRYCOLLECTION EMPTY'::geography geog_shorten,
-  NULL error_output
+  '{}'::jsonb error_output
 FROM
   pl_separated pl
   LEFT JOIN parking_poly p ON p.id = pl.pp_id
@@ -993,7 +993,7 @@ SELECT
   s.parking_lane_right_width_carriageway,
   s.parking_lane_left_offset,
   s.parking_lane_right_offset,
-  s.error_output,
+  (s.error_output#>>'{}')::jsonb error_output,
   ST_Buffer(ST_Intersection(s.geog, h.geog), (h.parking_lane_width_proc / 2) + 5) geog
 FROM service s
   JOIN highways h ON ST_Intersects(s.geog, h.geog)
@@ -1024,7 +1024,7 @@ SELECT
   s.parking_lane_right_width_carriageway,
   s.parking_lane_left_offset,
   s.parking_lane_right_offset,
-  s.error_output,
+  (s.error_output#>>'{}')::jsonb error_output,
   ST_Buffer(ST_Intersection(s.geog, p.geog), GREATEST((s.parking_lane_width_proc / 2), 2) ) geog
 FROM service s
   JOIN parking_lanes p ON ST_Intersects(s.geog, p.geog)
@@ -1183,7 +1183,7 @@ SELECT
   p.width width,
   p."offset" "offset",
   p.geog geog,
-  p.error_output error_output,
+  p.error_output,
   st_difference(
     st_difference(
       st_difference(
@@ -1293,7 +1293,7 @@ SELECT
     single.width width,
     single."offset" "offset",
     single.geog single_geog,
-    single.error_output error_output,
+    single.error_output,
     single.geog_diff geog_diff,
     (single.simple_geog)::geography geog
 FROM
@@ -1325,7 +1325,7 @@ SELECT
     "source:capacity" source_capacity,
     width width,
     "offset" "offset",
-    error_output error_output,
+    error_output,
     geog::geometry(LineString, 4326) geom,
     geog
 FROM pl_dev_geog
@@ -1362,7 +1362,7 @@ SELECT
     "source:capacity" source_capacity,
     width width,
     "offset" "offset",
-    error_output error_output,
+    error_output,
     CASE
       WHEN orientation = 'diagonal' THEN degrees(ST_Azimuth(ST_Startpoint(ST_Transform(geog::geometry, 25832)), ST_EndPoint(ST_Transform(geog::geometry, 25832)))) + 45
       WHEN orientation = 'perpendicular' THEN degrees(ST_Azimuth(ST_Startpoint(ST_Transform(geog::geometry, 25832)), ST_EndPoint(ST_Transform(geog::geometry, 25832)))) + 90

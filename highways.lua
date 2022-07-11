@@ -452,7 +452,7 @@ function osm2pgsql.process_way(object)
 
 
     -- process public transport objects and push them to db table
-    local public_transport = object:grab_tag("public_transport")
+    local public_transport = object.tags["public_transport"]
     if public_transport == "platform" then
         tables.pt_platform:add_row({
           name = object.tags["name"],
@@ -512,7 +512,7 @@ function osm2pgsql.process_way(object)
     local pl_both = nil
     local pl_error_output = {}
 
-    local name = object:grab_tag("name")
+    local name = object.tags["name"]
 
     local parking_left_position = object.tags["parking:lane:left:position"]
     local parking_right_position = object.tags["parking:lane:right:position"]
@@ -574,15 +574,20 @@ function osm2pgsql.process_way(object)
             if parking_lane_side == nil then
                 parking_lane_side = pl_both
             else
-                pl_error_idx = "pl01" .. side:sub(1)
-                pl_error_output[pl_error_idx] =
-                    "Attribute 'parking:lane:" .. side .. "' und 'parking:lane:both' gleichzeitig vorhanden. "
+                table.insert(pl_error_output, {
+                  error = "pl01" .. side:sub(1),
+                  side = side:sub(1),
+                  msg = "Attribute 'parking:lane:" .. side .. "' und 'parking:lane:both' gleichzeitig vorhanden. "
+                })
             end
 
         else
             if object.tags["parking:lane:" .. side] == nil then
-                pl_error_idx = "no_pl"
-                pl_error_output[pl_error_idx] = "Parkstreifeninformation nicht für alle Seiten vorhanden. "
+                table.insert(pl_error_output, {
+                  error = "no_pl",
+                  side =  side ,
+                  msg = "Parkstreifeninformation nicht für alle Seiten vorhanden."
+                })
             end
         end
 
@@ -601,8 +606,11 @@ function osm2pgsql.process_way(object)
 
             if dir_both then
                 if position then
-                    pl_error_idx = "pl02" .. side:sub(1)
-                    pl_error_output[pl_error_idx] = "Attribute 'parking:lane:" .. side .. ":position und parking:lane:both:position gleichzeitig vorhanden. "
+                    table.insert(pl_error_output, {
+                      error = "pl02" .. side:sub(1),
+                      side = side:sub(1) ,
+                      msg = "Attribute 'parking:lane:" .. side .. ":position und parking:lane:both:position gleichzeitig vorhanden."
+                    })
                 end
                 if not position then
                     position = object.tags["parking:lane:both:" .. parking_lane_side]
@@ -621,8 +629,11 @@ function osm2pgsql.process_way(object)
 
             if parking_condition_both_default ~= nil then
                 if parking_condition_side_default ~= nil then
-                    pl_error_idx = "pc01" .. side:sub(1)
-                    pl_error_output[pl_error_idx] = 'Attribute "parking:condition:' .. side .. ':default" und "parking:condition:both:default" gleichzeitig vorhanden. '
+                    table.insert(pl_error_output, {
+                      error = "pc02" .. side:sub(1),
+                      side = side,
+                      msg = 'Attribute "parking:condition:' .. side .. ':default" und "parking:condition:both:default" gleichzeitig vorhanden. '
+                    })
                 else
                     parking_condition_side_default = parking_condition_both_default
                 end
@@ -631,8 +642,11 @@ function osm2pgsql.process_way(object)
             parking_condition_side = object.tags["parking:condition:" .. side]
             if parking_condition_side_default == nil then
                 if parking_condition_side ~= nil and parking_condition_both ~= nil then
-                    pl_error_idx = "pc02" .. side:sub(1)
-                    pl_error_output[pl_error_idx] = 'Attribute "parking:condition:' .. side .. '" und "parking:condition:both" gleichzeitig vorhanden. '
+                    table.insert(pl_error_output, {
+                      error = "pc02" .. side:sub(1),
+                      side = side,
+                      msg = 'Attribute "parking:condition:' .. side .. '" und "parking:condition:both" gleichzeitig vorhanden. '
+                    })
                 end
                 if parking_condition_side == nil then
                     parking_condition = parking_condition_both
@@ -641,8 +655,11 @@ function osm2pgsql.process_way(object)
                 parking_condition = parking_condition_side_default
                 cond = parking_condition_side
                 if cond and parking_condition_both then
-                    pl_error_idx = "pc02" .. side:sub(1)
-                    pl_error_output[pl_error_idx] = 'Attribute "parking:condition:' .. side .. '" und "parking:condition:both" gleichzeitig vorhanden. '
+                    table.insert(pl_error_output, {
+                      error = "pc02" .. side:sub(1),
+                      side = side,
+                      msg = 'Attribute "parking:condition:' .. side .. '" und "parking:condition:both" gleichzeitig vorhanden. '
+                    })
                 end
                 if cond == nil then
                     cond = parking_condition_both
@@ -674,8 +691,11 @@ function osm2pgsql.process_way(object)
         local parking_condition_time_interval_side = object.tags['parking:condition:' .. side .. ':time_interval']
         if parking_condition_time_interval_side ~= nil then
             if parking_condition_other_time then
-                pl_error_idx = "pc03" .. side:sub(1)
-                pl_error_output[pl_error_idx] = ' Zeitliche Parkbeschränkung sowohl im conditional-restrictions- als auch im parking:lane:' .. side .. ':time_interval-Schema vorhanden. '
+                table.insert(pl_error_output, {
+                  error = "pc03" .. side:sub(1),
+                  side = side,
+                  msg = ' Zeitliche Parkbeschränkung sowohl im conditional-restrictions- als auch im parking:lane:' .. side .. ':time_interval-Schema vorhanden. '
+                })
             end
             parking_condition_other_time_set = parking_condition_time_interval_side
         else
@@ -684,8 +704,11 @@ function osm2pgsql.process_way(object)
 
         if parking_condition_both_time_interval ~= nil then
             if parking_condition_other_time_set then
-                pl_error_idx = "pc04" .. side:sub(1)
-                pl_error_output[pl_error_idx] = ' Attribute "parking:condition:' .. side .. ':time_interval" und "parking:condition:both:time_interval" gleichzeitig vorhanden. '
+                table.insert(pl_error_output, {
+                  error = "pc04" .. side:sub(1),
+                  side = side,
+                  msg = ' Attribute "parking:condition:' .. side .. ':time_interval" und "parking:condition:both:time_interval" gleichzeitig vorhanden. '
+                })
             end
             if parking_condition_other_time_set == nil then
                 parking_condition_other_time_set = parking_condition_both_time_interval
@@ -698,8 +721,11 @@ function osm2pgsql.process_way(object)
         local parking_condition_maxstay_side = object.tags['parking:condition:' .. side .. ':maxstay']
         if parking_condition_both_maxstay ~= nil then
             if parking_condition_maxstay_side then
-                pl_error_idx = "pc05" .. side:sub(1)
-                pl_error_output[pl_error_idx] = ' Attribute "parking:condition:' .. side .. ':maxstay" und "parking:condition:both:maxstay" gleichzeitig vorhanden. '
+                table.insert(pl_error_output, {
+                  error = "pc05" .. side:sub(1),
+                  side = side,
+                  msg = ' Attribute "parking:condition:' .. side .. ':maxstay" und "parking:condition:both:maxstay" gleichzeitig vorhanden. '
+                })
             else
                 parking_condition_maxstay_side = object.tags['parking:condition:both:maxstay']
             end
@@ -708,8 +734,11 @@ function osm2pgsql.process_way(object)
         local parking_lane_capacity_side = object.tags['parking:lane:' .. side .. ':capacity']
         if parking_lane_both_capacity ~= nil then
             if parking_lane_capacity_side ~= nil then
-                pl_error_idx = "pl01" .. side:sub(1)
-                pl_error_output[pl_error_idx] = 'Attribute "parking:lane:' .. side .. ':capacity" und "parking:lane:both:capacity" gleichzeitig vorhanden. '
+                table.insert(pl_error_output, {
+                  error = "pl01" .. side:sub(1),
+                  side = side,
+                  msg = 'Attribute "parking:lane:' .. side .. ':capacity" und "parking:lane:both:capacity" gleichzeitig vorhanden. '
+                })
             else
                 parking_capacity = object.tags['parking:lane:both:capacity']
             end
@@ -742,8 +771,11 @@ function osm2pgsql.process_way(object)
             if pakring_both_width ~= nil then
                 if parking_side_width == nil then parking_side_width = pakring_both_width
                 else
-                    pl_error_idx = "pl03" .. side:sub(1)
-                    pl_error_output[pl_error_idx] = "Attribute 'parking:lane:" .. side ..":width' und 'parking:lane:both:width' gleichzeitig vorhanden. "
+                    table.insert(pl_error_output, {
+                      error = "pl03" .. side:sub(1),
+                      side = side,
+                      msg = "Attribute 'parking:lane:" .. side ..":width' und 'parking:lane:both:width' gleichzeitig vorhanden. "
+                    })
                 end
             end
             -- Parkstreifenbreite aus Parkrichtung abschätzen, wenn nicht genauer angegeben

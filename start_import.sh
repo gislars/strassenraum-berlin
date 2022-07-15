@@ -5,7 +5,7 @@ OSM_DOWNLOAD_FILE=berlin-latest.osm.pbf
 #OSM_DOWNLOAD_FILE=germany-latest.osm.pbf
 OSM_DOWNLOAD_URL=http://download.geofabrik.de/europe/germany/${OSM_DOWNLOAD_FILE}
 
-OSM2PGSQL_BIN=/usr/local/bin/osm2pgsql
+OSM2PGSQL_BIN=/usr/bin/osm2pgsql
 
 OSM_LOCAL_FILE=openstreetmap-latest.osm.pbf
 OSM_FILTERED_FILE=openstreetmap-filtered.osm.pbf
@@ -17,12 +17,8 @@ OSM_POSTPROCESS_SCRIPT=db_scripts.sql
 export PGSERVICE=osmdb
 
 #
-if [ ! -f "${OSM_LOCAL_FILE}" ]; then
-  echo "downloading ${OSM_DOWNLOAD_URL}"
-  wget -q --show-progress ${OSM_DOWNLOAD_URL} -O ${OSM_LOCAL_FILE}
-else
-  echo "file ${OSM_LOCAL_FILE} exists"
-fi
+echo "downloading ${OSM_DOWNLOAD_URL}"
+wget -q -N --show-progress ${OSM_DOWNLOAD_URL} -O ${OSM_LOCAL_FILE}
 
 if [ -f "${OSM_LOCAL_FILE}" ]; then
   echo "processing osm data"
@@ -36,9 +32,9 @@ if [ -f "${OSM_FILTERED_FILE}" ]; then
   ${OSM2PGSQL_BIN} -c -O flex -S ${OSM_LUA_SCRIPT} ${OSM_FILTERED_FILE}
 fi
 
-# if [ -f "${OSM_POSTPROCESS_SCRIPT}" ]; then
-#   echo "postprocess osm db data"
-#   psql -q -f "${OSM_POSTPROCESS_SCRIPT}"
-# else
-#   echo "import script not found"
-# fi
+if [ -f "${OSM_POSTPROCESS_SCRIPT}" ]; then
+  echo "postprocess osm db data"
+  psql -q -f "${OSM_POSTPROCESS_SCRIPT}"
+else
+  echo "import script not found"
+fi

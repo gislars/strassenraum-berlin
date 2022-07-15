@@ -1325,6 +1325,8 @@ SELECT
     "source:capacity" source_capacity,
     width width,
     "offset" "offset",
+    ST_Length(geog) "length",
+    ST_Length(geog) / COALESCE(capacity, 1) length_per_capacity,
     error_output,
     geog::geometry(LineString, 4326) geom,
     geog

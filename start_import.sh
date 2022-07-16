@@ -37,6 +37,9 @@ if [ -f "${OSM_POSTPROCESS_SCRIPT}" ]; then
   echo "postprocess osm db data"
   psql -q -f "${OSM_POSTPROCESS_SCRIPT}"
   psql -q -c "COMMENT ON TABLE highways IS '${OSM_TIMESTAMP}';"
+  psql -q -c "COMMENT ON TABLE boundaries_stats IS '${OSM_TIMESTAMP}';"
+  psql -q -c "COMMENT ON TABLE parking_segments IS '${OSM_TIMESTAMP}';"
+  psql -q -c "COMMENT ON TABLE parking_spaces IS '${OSM_TIMESTAMP}';"
 else
   echo "import script not found"
 fi

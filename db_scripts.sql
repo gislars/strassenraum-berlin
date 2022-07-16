@@ -61,6 +61,14 @@ CREATE INDEX highways_geog_buffer_right_idx ON public.highways USING gist (geog_
 -- DROP INDEX IF EXISTS trees_geog_buffer_idx;
 -- CREATE INDEX trees_geog_buffer_idx ON public.trees USING gist (geog_buffer);
 
+ALTER TABLE boundaries ADD COLUMN IF NOT EXISTS geog geography(MultiPolygon, 4326);
+UPDATE boundaries SET geog = ST_Multi(geom)::geography;
+ALTER TABLE boundaries ALTER COLUMN geom TYPE geometry(MultiPolygon, 25833) USING ST_Multi(ST_Transform(geom, 25833));
+DROP INDEX IF EXISTS boundaries_geom_idx;
+CREATE INDEX boundaries_geom_idx ON public.boundaries USING gist (geom);
+DROP INDEX IF EXISTS boundaries_geog_idx;
+CREATE INDEX boundaries_geog_idx ON public.boundaries USING gist (geog);
+
 ALTER TABLE parking_poly ADD COLUMN IF NOT EXISTS geog geography;
 UPDATE parking_poly SET geog = geom::geography;
 DROP INDEX IF EXISTS parking_poly_geog_idx;

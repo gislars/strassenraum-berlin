@@ -1406,27 +1406,102 @@ CREATE INDEX parking_summary_geom_idx ON parking_summary USING gist (geom);
 DROP INDEX IF EXISTS parking_summary_geog_idx;
 CREATE INDEX parking_summary_geog_idx ON parking_summary USING gist (geog);
 
+
+DROP TABLE IF EXISTS  highways_admin;
+CREATE TABLE highways_admin AS
+SELECT
+  ROW_NUMBER() OVER() id,
+  b.name admin_name,
+  b.admin_level,
+  h.way_id,
+  h.type,
+  h.surface,
+  h.name,
+  h.oneway,
+  h.service,
+  h.dual_carriageway,
+  h.lanes,
+  h.width,
+  h.parking,
+  h.parking_lane_left,
+  h.parking_lane_right,
+  h.parking_lane_width_proc,
+  h.parking_lane_width_effective,
+  h.parking_lane_left_position,
+  h.parking_lane_right_position,
+  h.parking_lane_left_width,
+  h.parking_lane_right_width,
+  h.parking_lane_left_width_carriageway,
+  h.parking_lane_right_width_carriageway,
+  h.parking_lane_left_offset,
+  h.parking_lane_right_offset,
+  h.parking_condition_left,
+  h.parking_condition_left_other,
+  h.parking_condition_right,
+  h.parking_condition_right_other,
+  h.parking_condition_left_other_time,
+  h.parking_condition_right_other_time,
+  h.parking_condition_left_default,
+  h.parking_condition_right_default,
+  h.parking_condition_left_time_interval,
+  h.parking_condition_right_time_interval,
+  h.parking_condition_left_maxstay,
+  h.parking_condition_right_maxstay,
+  h.parking_lane_left_capacity,
+  h.parking_lane_right_capacity,
+  h.parking_lane_left_source_capacity,
+  h.parking_lane_right_source_capacity,
+  ST_Intersection(h.geom, b.geom) geom,
+  ST_Intersection(h.geog, b.geog) geog
+FROM
+  boundaries b,
+  highways h
+WHERE
+  h.geog && b.geog
+  AND b.admin_level IN ( 9, 10)
+  AND h.type IN ('primary', 'primary_link', 'secondary', 'secondary_link', 'tertiary', 'tertiary_link', 'residential', 'unclassified', 'living_street', 'pedestrian, road')
+;
+DROP INDEX IF EXISTS highways_admin_geom_idx;
+CREATE INDEX highways_admin_geom_idx ON public.highways_admin USING gist (geom);
+DROP INDEX IF EXISTS highways_admin_geog_idx;
+CREATE INDEX highways_admin_geog_idx ON public.highways_admin USING gist (geog);
+
 DROP TABLE IF EXISTS boundaries_stats;
 CREATE TABLE boundaries_stats AS
 SELECT
+  ROW_NUMBER() OVER() id,
   b.name,
-  b.admin_level,
-  b.area,
-  p.orientation,
-  SUM(p.capacity) capacity,
-  SUM(ST_Length(ST_Transform(p.geom, 25833))) laenge_km,
-  b.geom geom
+  ROUND(ST_Area(b.geog)::numeric / (1000 * 1000), 2)  aera_sqkm,
+  COALESCE(ROUND((SUM(ST_Length(h.geog)) FILTER (WHERE dual_carriageway IS NULL AND parking IN ('street_side')))::numeric / 1000, 1), 0) +
+  COALESCE(ROUND((SUM(ST_Length(h.geog) / 2) FILTER (WHERE dual_carriageway = true AND parking IN ('street_side')))::numeric / 1000, 1), 0) AS street_side_km,
+
+  COALESCE(ROUND((SUM(ST_Length(h.geog)) FILTER (WHERE dual_carriageway IS NULL AND parking IN ('lane')))::numeric / 1000, 1), 0) +
+  COALESCE(ROUND((SUM(ST_Length(h.geog) / 2) FILTER (WHERE dual_carriageway = true AND parking IN ('lane')))::numeric / 1000, 1), 0) AS lane_km,
+
+  COALESCE(ROUND((SUM(ST_Length(h.geog)) FILTER (WHERE dual_carriageway IS NULL AND parking IS NULL))::numeric / 1000, 1), 0) +
+  COALESCE(ROUND((SUM(ST_Length(h.geog) / 2) FILTER (WHERE dual_carriageway = true AND parking IS NULL))::numeric / 1000, 1), 0) AS d_other_km,
+
+  COALESCE(ROUND((SUM(ST_Length(h.geog)) FILTER (WHERE dual_carriageway IS NULL AND parking IN ('street_side')))::numeric / 1000, 1), 0) +
+  COALESCE(ROUND((SUM(ST_Length(h.geog) / 2) FILTER (WHERE dual_carriageway = true AND parking IN ('street_side')))::numeric / 1000, 1), 0) +
+  COALESCE(ROUND((SUM(ST_Length(h.geog)) FILTER (WHERE dual_carriageway IS NULL AND parking IN ('lane')))::numeric / 1000, 1), 0) +
+  COALESCE(ROUND((SUM(ST_Length(h.geog) / 2) FILTER (WHERE dual_carriageway = true AND parking IN ('lane')))::numeric / 1000, 1), 0) +
+  COALESCE(ROUND((SUM(ST_Length(h.geog)) FILTER (WHERE dual_carriageway IS NULL AND parking IS NULL))::numeric / 1000, 1), 0) +
+  COALESCE(ROUND((SUM(ST_Length(h.geog) / 2) FILTER (WHERE dual_carriageway = true AND parking IS NULL))::numeric / 1000, 1), 0) AS sum_km,
+  ROUND((SUM(ST_Length(h.geog)) / 1000)::numeric, 1) "length_wo_dual_carriageway",
+  b.geog::geometry geom
 FROM
-  boundaries b
-  LEFT JOIN parking_segments p ON ST_Intersects(p.geom, b.geom)
+  boundaries b,
+  highways_admin h
 WHERE
-  admin_level > 9
+  ST_Intersects(h.geom, b.geom)
+  AND h.admin_level = b.admin_level
+  AND h.admin_level = 9
+  AND h.type IN ('primary', 'primary_link', 'secondary', 'secondary_link', 'tertiary', 'tertiary_link', 'residential', 'unclassified', 'living_street', 'pedestrian, road')
+  AND b.name NOT IN ('Gosen', 'Lindenberg', 'Schönerlinde')
 GROUP BY
-  b.name,
-  b.admin_level,
-  b.area,
-  b.geom,
-  p.orientation
+  b.name, b.admin_level, b.geog
+ORDER BY
+  b.name
 ;
 DROP INDEX IF EXISTS boundaries_stats_geom_idx;
 CREATE INDEX boundaries_stats_geom_idx ON boundaries_stats USING gist (geom);

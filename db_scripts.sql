@@ -1513,3 +1513,5 @@ ORDER BY
 ;
 DROP INDEX IF EXISTS boundaries_stats_geom_idx;
 CREATE INDEX boundaries_stats_geom_idx ON boundaries_stats USING gist (geom);
+ALTER TABLE boundaries_stats ADD COLUMN IF NOT EXISTS done_percent numeric;
+UPDATE boundaries_stats SET done_percent = ROUND((street_side_km + lane_km) / sum_km * 100, 1);

@@ -1496,7 +1496,7 @@ SELECT
   COALESCE(ROUND((SUM(ST_Length(h.geog)) FILTER (WHERE dual_carriageway IS NULL AND parking IS NULL))::numeric / 1000, 1), 0) +
   COALESCE(ROUND((SUM(ST_Length(h.geog) / 2) FILTER (WHERE dual_carriageway = true AND parking IS NULL))::numeric / 1000, 1), 0) AS sum_km,
   ROUND((SUM(ST_Length(h.geog)) / 1000)::numeric, 1) "length_wo_dual_carriageway",
-  b.geog::geometry geom
+  b.geog::geometry(MultiPolygon, 4326) geom
 FROM
   boundaries b,
   highways_admin h

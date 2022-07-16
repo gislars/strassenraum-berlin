@@ -13,14 +13,13 @@ OSM_FILTER_EXPRESSIONS=filter-expressions.txt
 OSM_LUA_SCRIPT=highways.lua
 OSM_POSTPROCESS_SCRIPT=db_scripts.sql
 
-OSM_TIMESTAMP=`osmium fileinfo ${OSM_LOCAL_FILE} -g header.option.timestamp`
-
 ## using database credentials from ~/.pg_service.conf
 export PGSERVICE=osmdb
 
 #
 echo "downloading ${OSM_DOWNLOAD_URL}"
 wget -q -N --show-progress ${OSM_DOWNLOAD_URL} -O ${OSM_LOCAL_FILE}
+OSM_TIMESTAMP=`osmium fileinfo ${OSM_LOCAL_FILE} -g header.option.timestamp`
 
 if [ -f "${OSM_LOCAL_FILE}" ]; then
   echo "processing osm data"

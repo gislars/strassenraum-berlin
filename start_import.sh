@@ -13,6 +13,8 @@ OSM_FILTER_EXPRESSIONS=filter-expressions.txt
 OSM_LUA_SCRIPT=highways.lua
 OSM_POSTPROCESS_SCRIPT=db_scripts.sql
 
+OSM_TIMESTAMP=`osmium fileinfo ${OSM_LOCAL_FILE} -g header.option.timestamp`
+
 ## using database credentials from ~/.pg_service.conf
 export PGSERVICE=osmdb
 
@@ -35,6 +37,7 @@ fi
 if [ -f "${OSM_POSTPROCESS_SCRIPT}" ]; then
   echo "postprocess osm db data"
   psql -q -f "${OSM_POSTPROCESS_SCRIPT}"
+  psql -q -c "COMMENT ON TABLE highways IS '${OSM_TIMESTAMP}';"
 else
   echo "import script not found"
 fi

@@ -18,7 +18,8 @@ export PGSERVICE=osmdb
 
 #
 echo "downloading ${OSM_DOWNLOAD_URL}"
-wget -q -N --show-progress ${OSM_DOWNLOAD_URL} -O ${OSM_LOCAL_FILE}
+wget -q -N --show-progress ${OSM_DOWNLOAD_URL}
+cp ./${OSM_DOWNLOAD_FILE} ./${OSM_LOCAL_FILE}
 OSM_TIMESTAMP=`osmium fileinfo ${OSM_LOCAL_FILE} -g header.option.timestamp`
 
 if [ -f "${OSM_LOCAL_FILE}" ]; then

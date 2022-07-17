@@ -41,6 +41,7 @@ if [ -f "${OSM_POSTPROCESS_SCRIPT}" ]; then
   psql -q -c "COMMENT ON TABLE boundaries_stats IS '${OSM_TIMESTAMP}';"
   psql -q -c "COMMENT ON TABLE parking_segments IS '${OSM_TIMESTAMP}';"
   psql -q -c "COMMENT ON TABLE parking_spaces IS '${OSM_TIMESTAMP}';"
+  psql -q -t -f scripts/export_stats.sql -o export/boundaries_stats.geojson
 else
   echo "import script not found"
 fi

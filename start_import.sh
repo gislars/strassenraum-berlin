@@ -7,11 +7,12 @@ OSM_DOWNLOAD_URL=http://download.geofabrik.de/europe/germany/${OSM_DOWNLOAD_FILE
 
 OSM2PGSQL_BIN=/usr/bin/osm2pgsql
 
-OSM_LOCAL_FILE=openstreetmap-latest.osm.pbf
-OSM_FILTERED_FILE=openstreetmap-filtered.osm.pbf
-OSM_FILTER_EXPRESSIONS=filter-expressions.txt
-OSM_LUA_SCRIPT=highways.lua
-OSM_POSTPROCESS_SCRIPT=db_scripts.sql
+OSM_WORKDIR="$(dirname "$0")/"
+OSM_LOCAL_FILE=${OSM_WORKDIR}openstreetmap-latest.osm.pbf
+OSM_FILTERED_FILE=${OSM_WORKDIR}openstreetmap-filtered.osm.pbf
+OSM_FILTER_EXPRESSIONS=${OSM_WORKDIR}filter-expressions.txt
+OSM_LUA_SCRIPT=${OSM_WORKDIR}highways.lua
+OSM_POSTPROCESS_SCRIPT=${OSM_WORKDIR}db_scripts.sql
 
 ## using database credentials from ~/.pg_service.conf
 export PGSERVICE=osmdb
@@ -19,7 +20,7 @@ export PGSERVICE=osmdb
 #
 echo "downloading ${OSM_DOWNLOAD_URL}"
 wget -q -N --show-progress ${OSM_DOWNLOAD_URL}
-cp ./${OSM_DOWNLOAD_FILE} ./${OSM_LOCAL_FILE}
+cp ${OSM_DOWNLOAD_FILE} ${OSM_LOCAL_FILE}
 OSM_TIMESTAMP=`osmium fileinfo ${OSM_LOCAL_FILE} -g header.option.timestamp`
 
 if [ -f "${OSM_LOCAL_FILE}" ]; then
@@ -41,7 +42,7 @@ if [ -f "${OSM_POSTPROCESS_SCRIPT}" ]; then
   psql -q -c "COMMENT ON TABLE boundaries_stats IS '${OSM_TIMESTAMP}';"
   psql -q -c "COMMENT ON TABLE parking_segments IS '${OSM_TIMESTAMP}';"
   psql -q -c "COMMENT ON TABLE parking_spaces IS '${OSM_TIMESTAMP}';"
-  psql -q -t -f scripts/export_stats.sql -o export/boundaries_stats.geojson
+  psql -q -t -f ${OSM_WORKDIR}scripts/export_stats.sql -o ${OSM_WORKDIR}export/boundaries_stats.geojson
 else
   echo "import script not found"
 fi

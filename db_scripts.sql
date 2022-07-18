@@ -1466,7 +1466,7 @@ FROM
   highways h
 WHERE
   h.geog && b.geog
-  AND b.admin_level IN ( 9, 10)
+  AND b.admin_level IN (4, 9, 10)
   AND h.type IN ('primary', 'primary_link', 'secondary', 'secondary_link', 'tertiary', 'tertiary_link', 'residential', 'unclassified', 'living_street', 'pedestrian, road')
 ;
 DROP INDEX IF EXISTS highways_admin_geom_idx;

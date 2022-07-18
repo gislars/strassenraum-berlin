@@ -1479,6 +1479,7 @@ CREATE TABLE boundaries_stats AS
 SELECT
   ROW_NUMBER() OVER() id,
   b.name,
+  b.admin_level,
   ROUND(ST_Area(b.geog)::numeric / (1000 * 1000), 2)  aera_sqkm,
   COALESCE(ROUND((SUM(ST_Length(h.geog)) FILTER (WHERE dual_carriageway IS NULL AND parking IN ('street_side')))::numeric / 1000, 1), 0) +
   COALESCE(ROUND((SUM(ST_Length(h.geog) / 2) FILTER (WHERE dual_carriageway = true AND parking IN ('street_side')))::numeric / 1000, 1), 0) AS street_side_km,
@@ -1503,7 +1504,7 @@ FROM
 WHERE
   ST_Intersects(h.geom, b.geom)
   AND h.admin_level = b.admin_level
-  AND h.admin_level = 9
+  AND h.admin_level IN (4, 9, 10)
   AND h.type IN ('primary', 'primary_link', 'secondary', 'secondary_link', 'tertiary', 'tertiary_link', 'residential', 'unclassified', 'living_street', 'pedestrian, road')
   AND b.name NOT IN ('Gosen', 'Lindenberg', 'Schönerlinde')
 GROUP BY
